@@ -2,11 +2,10 @@ package nfs
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net"
-	"sync"
 
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
@@ -35,17 +34,19 @@ const (
 
 type conn struct {
 	*Server
-	writeLock sync.Mutex
+	writeSerializer chan []byte
 	net.Conn
 }
 
 func (c *conn) serve(ctx context.Context) {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	c.writeSerializer = make(chan []byte, 1)
+	go c.serializeWrites(connCtx)
 
 	bio := bufio.NewReader(c.Conn)
 	for {
-		w, err := c.readRequest(connCtx, bio)
+		w, err := c.readRequestHeader(connCtx, bio)
 		if err != nil {
 			return
 		}
@@ -53,23 +54,41 @@ func (c *conn) serve(ctx context.Context) {
 	}
 }
 
+func (c *conn) serializeWrites(ctx context.Context) {
+	writer := bufio.NewWriter(c.Conn)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-c.writeSerializer:
+			if !ok {
+				return
+			}
+			n, err := writer.Write(msg)
+			if err != nil {
+				return
+			}
+			if n < len(msg) {
+				panic("todo: ensure writes complete fully.")
+			}
+		}
+	}
+}
+
 func (c *conn) handle(ctx context.Context, w *response) {
 	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
 	if handler == nil {
-		c.err(ctx, w, errors.New("Invalid Handler"))
+		c.err(ctx, w, &ResponseCodeProcUnavailableError{})
 		return
 	}
 	err := handler(ctx, w, c.Server.Handler)
 	if err != nil && !w.responded {
 		c.err(ctx, w, err)
 	}
-	c.Close()
 	return
 }
 
 func (c *conn) err(ctx context.Context, w *response, err error) {
-	c.writeLock.Lock()
-	defer c.writeLock.Unlock()
 	select {
 	case <-ctx.Done():
 		return
@@ -92,6 +111,7 @@ func (c *conn) err(ctx context.Context, w *response, err error) {
 	} else {
 		w.writeHeader(ResponseCodeSystemErr)
 	}
+	w.finish()
 }
 
 type request struct {
@@ -101,8 +121,8 @@ type request struct {
 }
 
 type response struct {
-	conn      net.Conn
-	writer    io.Writer
+	*conn
+	writer    *bytes.Buffer
 	responded bool
 	err       error
 	req       *request
@@ -125,7 +145,6 @@ func (w *response) writeHeader(code ResponseCode) error {
 	if w.responded {
 		return ErrAlreadySent
 	}
-	w.writer = bufio.NewWriter(w.conn)
 	w.responded = true
 	if err := w.writeXdrHeader(); err != nil {
 		return err
@@ -165,7 +184,12 @@ func (w *response) write(dat []byte) error {
 	return nil
 }
 
-func (c *conn) readRequest(ctx context.Context, reader *bufio.Reader) (w *response, err error) {
+func (w *response) finish() error {
+	w.conn.writeSerializer <- w.writer.Bytes()
+	return nil
+}
+
+func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *response, err error) {
 	xid, err := xdr.ReadUint32(reader)
 	if err != nil {
 		return nil, err
@@ -191,6 +215,8 @@ func (c *conn) readRequest(ctx context.Context, reader *bufio.Reader) (w *respon
 	w = &response{
 		conn: c,
 		req:  &req,
+		// TODO: use a pool for these.
+		writer: bytes.NewBuffer([]byte{}),
 	}
 	return w, nil
 }

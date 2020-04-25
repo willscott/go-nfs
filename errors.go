@@ -115,3 +115,21 @@ func (r *RPCMismatchError) MarshalBinary() (data []byte, err error) {
 	binary.LittleEndian.PutUint32(resp[4:8], uint32(r.High))
 	return resp[:], nil
 }
+
+// ResponseCodeProcUnavailableError is an RPCError
+type ResponseCodeProcUnavailableError struct {
+}
+
+// Code for ResponseCodeProcUnavailableError
+func (r *ResponseCodeProcUnavailableError) Code() ResponseCode {
+	return ResponseCodeProcUnavailable
+}
+
+func (r *ResponseCodeProcUnavailableError) Error() string {
+	return "The requested procedure is unexported"
+}
+
+// MarshalBinary - this error has no associated body
+func (r *ResponseCodeProcUnavailableError) MarshalBinary() (data []byte, err error) {
+	return []byte{}, nil
+}
