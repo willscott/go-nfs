@@ -46,6 +46,25 @@ const (
 	MountProcExport
 )
 
+func (m MountProcedure) String() string {
+	switch m {
+	case MountProcNull:
+		return "Null"
+	case MountProcMount:
+		return "Mount"
+	case MountProcDump:
+		return "Dump"
+	case MountProcUmnt:
+		return "Umnt"
+	case MountProcUmntAll:
+		return "UmntAll"
+	case MountProcExport:
+		return "Export"
+	default:
+		return "Unknown"
+	}
+}
+
 // AuthFlavor is a form of authentication, per rfc1057 section 7.2
 type AuthFlavor uint32
 

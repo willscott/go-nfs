@@ -4,9 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
 	"net"
 
+	xdr2 "github.com/rasky/go-xdr/xdr2"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
@@ -48,14 +54,28 @@ func (c *conn) serve(ctx context.Context) {
 	for {
 		w, err := c.readRequestHeader(connCtx, bio)
 		if err != nil {
+			if err == io.EOF {
+				// Clean close.
+				c.Close()
+				return
+			}
 			return
 		}
-		go c.handle(connCtx, w)
+		log.Printf("request: %v", w.req)
+		err = c.handle(connCtx, w)
+		if err != nil {
+			// failure to handle at a level needing to close the connection.
+			c.Close()
+			return
+		}
 	}
 }
 
 func (c *conn) serializeWrites(ctx context.Context) {
+	// todo: maybe don't need the extra buffer
 	writer := bufio.NewWriter(c.Conn)
+	var fragmentBuf [4]byte
+	var fragmentInt uint32
 	for {
 		select {
 		case <-ctx.Done():
@@ -64,34 +84,57 @@ func (c *conn) serializeWrites(ctx context.Context) {
 			if !ok {
 				return
 			}
-			n, err := writer.Write(msg)
+			// prepend the fragmentation header
+			fragmentInt = uint32(len(msg))
+			fragmentInt |= (1 << 31)
+			binary.BigEndian.PutUint32(fragmentBuf[:], fragmentInt)
+			n, err := writer.Write(fragmentBuf[:])
+			if n < 4 || err != nil {
+				return
+			}
+			n, err = writer.Write(msg)
 			if err != nil {
 				return
 			}
 			if n < len(msg) {
 				panic("todo: ensure writes complete fully.")
 			}
+			if err = writer.Flush(); err != nil {
+				return
+			}
 		}
 	}
 }
 
-func (c *conn) handle(ctx context.Context, w *response) {
+func (c *conn) handle(ctx context.Context, w *response) error {
 	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
 	if handler == nil {
-		c.err(ctx, w, &ResponseCodeProcUnavailableError{})
-		return
+		return c.err(ctx, w, &ResponseCodeProcUnavailableError{})
 	}
 	err := handler(ctx, w, c.Server.Handler)
 	if err != nil && !w.responded {
-		c.err(ctx, w, err)
+		err = c.err(ctx, w, err)
+		if err != nil {
+			return err
+		}
 	}
-	return
+	err = w.drain(ctx)
+	if err != nil {
+		if !w.responded {
+			_ = c.err(ctx, w, err)
+		}
+		return err
+	}
+	if !w.responded {
+		//todo: if handler didn't trigger a write... then what.
+	}
+	return w.finish(ctx)
 }
 
-func (c *conn) err(ctx context.Context, w *response, err error) {
+func (c *conn) err(ctx context.Context, w *response, err error) error {
 	select {
 	case <-ctx.Done():
-		return
+		return nil
 	default:
 	}
 
@@ -100,24 +143,34 @@ func (c *conn) err(ctx context.Context, w *response, err error) {
 	}
 
 	if w.responded {
-		return
+		return nil
 	}
 
 	var rpcErr RPCError
 	if errors.As(err, &rpcErr) {
-		w.writeHeader(rpcErr.Code())
+		if writeErr := w.writeHeader(rpcErr.Code()); writeErr != nil {
+			return writeErr
+		}
+
 		body, _ := rpcErr.MarshalBinary()
-		w.write(body)
-	} else {
-		w.writeHeader(ResponseCodeSystemErr)
+		return w.Write(body)
 	}
-	w.finish()
+	return w.writeHeader(ResponseCodeSystemErr)
 }
 
 type request struct {
 	xid uint32
 	rpc.Header
-	Body *bufio.Reader
+	Body io.Reader
+}
+
+func (r *request) String() string {
+	if r.Header.Prog == nfsServiceID {
+		return fmt.Sprintf("RPC #%d (nfs.%s)", r.xid, NFSProcedure(r.Header.Proc))
+	} else if r.Header.Prog == mountServiceID {
+		return fmt.Sprintf("RPC #%d (mount.%s)", r.xid, MountProcedure(r.Header.Proc))
+	}
+	return fmt.Sprintf("RPC #%d (%d.%d)", r.xid, r.Header.Prog, r.Header.Proc)
 }
 
 type response struct {
@@ -162,13 +215,17 @@ func (w *response) writeHeader(code ResponseCode) error {
 
 	if status == rpc.MsgAccepted {
 		// Write opaque_auth header.
+		err = xdr.Write(w.writer, &rpc.AuthNull)
+		if err != nil {
+			return err
+		}
 	}
 
-	return nil
+	return xdr.Write(w.writer, &code)
 }
 
 // Write a response to an xdr message
-func (w *response) write(dat []byte) error {
+func (w *response) Write(dat []byte) error {
 	if !w.responded {
 		w.writeHeader(ResponseCodeSuccess)
 	}
@@ -184,32 +241,71 @@ func (w *response) write(dat []byte) error {
 	return nil
 }
 
-func (w *response) finish() error {
-	w.conn.writeSerializer <- w.writer.Bytes()
-	return nil
+// drain reads the rest of the request frame if not consumed by the handler.
+func (w *response) drain(ctx context.Context) error {
+	if reader, ok := w.req.Body.(*io.LimitedReader); ok {
+		if reader.N == 0 {
+			return nil
+		}
+		// todo: wrap body in a context reader.
+		_, err := io.CopyN(ioutil.Discard, w.req.Body, reader.N)
+		if err == nil || err == io.EOF {
+			return nil
+		}
+		return err
+	}
+	return io.ErrUnexpectedEOF
+}
+
+func (w *response) finish(ctx context.Context) error {
+	select {
+	case w.conn.writeSerializer <- w.writer.Bytes():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *response, err error) {
-	xid, err := xdr.ReadUint32(reader)
+	fragment, err := xdr.ReadUint32(reader)
+	if err != nil {
+		if xdrErr, ok := err.(*xdr2.UnmarshalError); ok {
+			if xdrErr.Err == io.EOF {
+				return nil, io.EOF
+			}
+		}
+		return nil, err
+	}
+	if fragment&(1<<31) == 0 {
+		log.Printf("Warning: haven't implemented fragment reconstruction.\n")
+		return nil, ErrInputInvalid
+	}
+	reqLen := fragment - uint32(1<<31)
+	if reqLen < 40 {
+		return nil, ErrInputInvalid
+	}
+
+	r := io.LimitedReader{R: reader, N: int64(reqLen)}
+
+	xid, err := xdr.ReadUint32(&r)
 	if err != nil {
 		return nil, err
 	}
-	reqType, err := xdr.ReadUint32(reader)
+	reqType, err := xdr.ReadUint32(&r)
 	if err != nil {
 		return nil, err
 	}
 	if reqType != 0 { // 0 = request, 1 = response
 		return nil, ErrInputInvalid
 	}
-	hdr := rpc.Header{}
-	if err = xdr.Read(reader, &hdr); err != nil {
-		return nil, err
-	}
 
 	req := request{
 		xid,
-		hdr,
-		reader,
+		rpc.Header{},
+		&r,
+	}
+	if err = xdr.Read(&r, &req.Header); err != nil {
+		return nil, err
 	}
 
 	w = &response{

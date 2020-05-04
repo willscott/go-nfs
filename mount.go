@@ -37,5 +37,5 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 		xdr.Write(writer, handle)
 		xdr.Write(writer, flavors)
 	}
-	return w.write(writer.Bytes())
+	return w.Write(writer.Bytes())
 }

@@ -15,3 +15,8 @@ through specific mount options. e.g.
 the backing of the server around. The closest may be to use the interface from
 [`net/http.FileSystem`](https://github.com/golang/go/blob/go1.11.2/src/net/http/fs.go#L93)
 or to give up on being agnostic and go with [`rio`](https://github.com/polydawn/rio/blob/master/fs/interface.go).
+
+* Relevant RFCS:
+[5531 - RPC protocol](https://tools.ietf.org/html/rfc5531),
+[1813 - NFSv3](https://tools.ietf.org/html/rfc1813),
+[1094 - NFS](https://tools.ietf.org/html/rfc1094)

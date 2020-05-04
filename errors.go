@@ -133,3 +133,21 @@ func (r *ResponseCodeProcUnavailableError) Error() string {
 func (r *ResponseCodeProcUnavailableError) MarshalBinary() (data []byte, err error) {
 	return []byte{}, nil
 }
+
+// ResponseCodeSystemError is an RPCError
+type ResponseCodeSystemError struct {
+}
+
+// Code for ResponseCodeSystemError
+func (r *ResponseCodeSystemError) Code() ResponseCode {
+	return ResponseCodeSystemErr
+}
+
+func (r *ResponseCodeSystemError) Error() string {
+	return "memory allocation failure"
+}
+
+// MarshalBinary - this error has no associated body
+func (r *ResponseCodeSystemError) MarshalBinary() (data []byte, err error) {
+	return []byte{}, nil
+}
