@@ -151,3 +151,25 @@ func (r *ResponseCodeSystemError) Error() string {
 func (r *ResponseCodeSystemError) MarshalBinary() (data []byte, err error) {
 	return []byte{}, nil
 }
+
+// NFSStatusError represents an error at the NFS level.
+type NFSStatusError struct {
+	NFSStatus
+}
+
+// Error is The wrapped error
+func (s *NFSStatusError) Error() string {
+	return s.NFSStatus.String()
+}
+
+// Code for NFS issues are successful RPC responses
+func (s *NFSStatusError) Code() ResponseCode {
+	return ResponseCodeSuccess
+}
+
+// MarshalBinary - The binary form of the code.
+func (s *NFSStatusError) MarshalBinary() (data []byte, err error) {
+	var resp [4]byte
+	binary.LittleEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
+	return resp[:], nil
+}

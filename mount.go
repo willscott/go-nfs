@@ -24,17 +24,17 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 	mountReq := MountRequest{Header: w.req.Header, Dirpath: dirpath}
 	status, handle, flavors := userHandle.Mount(ctx, w.conn, mountReq)
 
-	// Override RPC header
-	// TODO: revisit - this ugliness is probably indicative that the conn interface needs work.
-	w.responded = true
-	if err := w.writeXdrHeader(); err != nil {
+	w.writeHeader(ResponseCodeSuccess)
+
+	writer := bytes.NewBuffer([]byte{})
+	if err := xdr.Write(writer, uint32(status)); err != nil {
 		return err
 	}
 
-	writer := bytes.NewBuffer([]byte{})
-	xdr.Write(writer, uint32(status))
+	rootHndl := userHandle.ToHandle(handle, "/")
+
 	if status == MountStatusOk {
-		xdr.Write(writer, handle)
+		xdr.Write(writer, rootHndl)
 		xdr.Write(writer, flavors)
 	}
 	return w.Write(writer.Bytes())

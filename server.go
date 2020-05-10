@@ -40,11 +40,6 @@ type registeredHandlerID struct {
 
 var registeredHandlers map[registeredHandlerID]HandleFunc
 
-// Handler represents the interface of the file system / vfs being exposed over NFS
-type Handler interface {
-	Mount(context.Context, net.Conn, MountRequest) (MountStatus, FileHandle, []AuthFlavor)
-}
-
 // Serve listens on the provided listener port for incoming client requests.
 func (s *Server) Serve(l net.Listener) error {
 	defer l.Close()

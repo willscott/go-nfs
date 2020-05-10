@@ -79,3 +79,83 @@ func (n NFSProcedure) String() string {
 		return "Unknown"
 	}
 }
+
+// NFSStatus (nfsstat3) is a result code for nfs rpc calls
+type NFSStatus uint32
+
+// NFSStatus codes
+const (
+	NFSStatusOk          NFSStatus = 0
+	NFSStatusPerm        NFSStatus = 1
+	NFSStatusNoEnt       NFSStatus = 2
+	NFSStatusIO          NFSStatus = 5
+	NFSStatusNXIO        NFSStatus = 6
+	NFSStatusAccess      NFSStatus = 13
+	NFSStatusExist       NFSStatus = 17
+	NFSStatusXDev        NFSStatus = 18
+	NFSStatusNoDev       NFSStatus = 19
+	NFSStatusNotDir      NFSStatus = 20
+	NFSStatusIsDir       NFSStatus = 21
+	NFSStatusInval       NFSStatus = 22
+	NFSStatusFBig        NFSStatus = 27
+	NFSStatusNoSPC       NFSStatus = 28
+	NFSStatusROFS        NFSStatus = 30
+	NFSStatusMlink       NFSStatus = 31
+	NFSStatusNameTooLong NFSStatus = 63
+	NFSStatusNotEmpty    NFSStatus = 66
+	NFSStatusDQuot       NFSStatus = 69
+	NFSStatusStale       NFSStatus = 70
+	NFSStatusRemote      NFSStatus = 71
+	NFSStatusBadHandle   NFSStatus = 10001
+)
+
+func (s NFSStatus) String() string {
+	switch s {
+	case NFSStatusOk:
+		return "Call Completed Successfull"
+	case NFSStatusPerm:
+		return "Not Owner"
+	case NFSStatusNoEnt:
+		return "No such file or directory"
+	case NFSStatusIO:
+		return "I/O error"
+	case NFSStatusNXIO:
+		return "I/O error: No such device"
+	case NFSStatusAccess:
+		return "Permission denied"
+	case NFSStatusExist:
+		return "File exists"
+	case NFSStatusXDev:
+		return "Attempt to do a cross device hard link"
+	case NFSStatusNoDev:
+		return "No such device"
+	case NFSStatusNotDir:
+		return "Not a directory"
+	case NFSStatusIsDir:
+		return "Is a directory"
+	case NFSStatusInval:
+		return "Invalid argument"
+	case NFSStatusFBig:
+		return "File too large"
+	case NFSStatusNoSPC:
+		return "No space left on device"
+	case NFSStatusROFS:
+		return "Read only file system"
+	case NFSStatusMlink:
+		return "Too many hard links"
+	case NFSStatusNameTooLong:
+		return "Name too long"
+	case NFSStatusNotEmpty:
+		return "Not empty"
+	case NFSStatusDQuot:
+		return "Resource quota exceeded"
+	case NFSStatusStale:
+		return "Invalid file handle"
+	case NFSStatusRemote:
+		return "Too many levels of remote in path"
+	case NFSStatusBadHandle:
+		return "Illegal NFS file handle"
+	default:
+		return "unknown"
+	}
+}
