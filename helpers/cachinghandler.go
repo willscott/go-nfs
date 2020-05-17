@@ -25,13 +25,13 @@ type CachingHandler struct {
 
 type entry struct {
 	f billy.Filesystem
-	p string
+	p []string
 }
 
 // ToHandle takes a file and represents it with an opaque handle to reference it.
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
-func (c *CachingHandler) ToHandle(f billy.Filesystem, path string) []byte {
+func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 	id := uuid.New()
 	c.activeHandles.Add(id, entry{f, path})
 	b, _ := id.MarshalBinary()
@@ -39,10 +39,10 @@ func (c *CachingHandler) ToHandle(f billy.Filesystem, path string) []byte {
 }
 
 // FromHandle converts from an opaque handle to the file it represents
-func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, string, error) {
+func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, error) {
 	id, err := uuid.FromBytes(fh)
 	if err != nil {
-		return nil, "", err
+		return nil, []string{}, err
 	}
 
 	if cache, ok := c.activeHandles.Get(id); ok {
@@ -51,5 +51,5 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, string, error)
 			return f.f, f.p, nil
 		}
 	}
-	return nil, "", &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
+	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
 }

@@ -170,6 +170,28 @@ func (s *NFSStatusError) Code() ResponseCode {
 // MarshalBinary - The binary form of the code.
 func (s *NFSStatusError) MarshalBinary() (data []byte, err error) {
 	var resp [4]byte
-	binary.LittleEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
+	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
+	return resp[:], nil
+}
+
+// NFSStatusErrorWithOpAttr is an NFS error where a 'post_op_attr' is expected
+type NFSStatusErrorWithOpAttr struct {
+	NFSStatus
+}
+
+// Error is The wrapped error
+func (s *NFSStatusErrorWithOpAttr) Error() string {
+	return s.NFSStatus.String()
+}
+
+// Code for NFS issues are successful RPC responses
+func (s *NFSStatusErrorWithOpAttr) Code() ResponseCode {
+	return ResponseCodeSuccess
+}
+
+// MarshalBinary - The binary form of the code.
+func (s *NFSStatusErrorWithOpAttr) MarshalBinary() (data []byte, err error) {
+	var resp [8]byte
+	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
 	return resp[:], nil
 }

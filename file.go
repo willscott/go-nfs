@@ -92,8 +92,8 @@ func ToFileAttribute(info os.FileInfo) FileAttribute {
 }
 
 // WritePostOpAttrs writes the `post_op_attr` representation of a files attributes
-func WritePostOpAttrs(writer io.Writer, fs billy.Filesystem, path string) {
-	attrs, err := fs.Stat(path)
+func WritePostOpAttrs(writer io.Writer, fs billy.Filesystem, path []string) {
+	attrs, err := fs.Stat(fs.Join(path...))
 	if err != nil {
 		_ = xdr.Write(writer, uint32(0))
 	}

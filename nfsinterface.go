@@ -107,6 +107,13 @@ const (
 	NFSStatusStale       NFSStatus = 70
 	NFSStatusRemote      NFSStatus = 71
 	NFSStatusBadHandle   NFSStatus = 10001
+	NFSStatusNotSync     NFSStatus = 10002
+	NFSStatusBadCookie   NFSStatus = 10003
+	NFSStatusNotSupp     NFSStatus = 10004
+	NFSStatusTooSmall    NFSStatus = 10005
+	NFSStatusServerFault NFSStatus = 10006
+	NFSStatusBadType     NFSStatus = 10007
+	NFSStatusJukebox     NFSStatus = 10008
 )
 
 func (s NFSStatus) String() string {
@@ -155,7 +162,27 @@ func (s NFSStatus) String() string {
 		return "Too many levels of remote in path"
 	case NFSStatusBadHandle:
 		return "Illegal NFS file handle"
+	case NFSStatusNotSync:
+		return "Synchronization mismatch"
+	case NFSStatusBadCookie:
+		return "Cookie is Stale"
+	case NFSStatusNotSupp:
+		return "Operation not supported"
+	case NFSStatusTooSmall:
+		return "Buffer or request too small"
+	case NFSStatusServerFault:
+		return "Unmapped error (EIO)"
+	case NFSStatusBadType:
+		return "Type not supported"
+	case NFSStatusJukebox:
+		return "Initiated, but too slow. Try again with new txn"
 	default:
 		return "unknown"
 	}
+}
+
+// DirOpArg is a common serialization used for referencing an object in a directory
+type DirOpArg struct {
+	Handle   []byte
+	Filename []byte
 }

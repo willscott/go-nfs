@@ -25,14 +25,19 @@ func (h *HelloWorldHandler) Mount(ctx context.Context, conn net.Conn, req nfs.Mo
 	return
 }
 
+// FSStat provides information about a filesystem.
+func (h *HelloWorldHandler) FSStat(ctx context.Context, f billy.Filesystem, s *nfs.FSStat) error {
+	return nil
+}
+
 // ToHandle handled by CachingHandler
-func (h *HelloWorldHandler) ToHandle(f billy.Filesystem, s string) []byte {
+func (h *HelloWorldHandler) ToHandle(f billy.Filesystem, s []string) []byte {
 	return []byte{}
 }
 
 // FromHandle handled by CachingHandler
-func (h *HelloWorldHandler) FromHandle([]byte) (billy.Filesystem, string, error) {
-	return nil, "", nil
+func (h *HelloWorldHandler) FromHandle([]byte) (billy.Filesystem, []string, error) {
+	return nil, []string{}, nil
 }
 
 func main() {

@@ -13,6 +13,7 @@ const (
 
 func init() {
 	RegisterMessageHandler(mountServiceID, uint32(MountProcMount), onMount)
+	RegisterMessageHandler(mountServiceID, uint32(MountProcUmnt), onUMount)
 }
 
 func onMount(ctx context.Context, w *response, userHandle Handler) error {
@@ -31,11 +32,21 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
-	rootHndl := userHandle.ToHandle(handle, "/")
+	rootHndl := userHandle.ToHandle(handle, []string{})
 
 	if status == MountStatusOk {
 		xdr.Write(writer, rootHndl)
 		xdr.Write(writer, flavors)
 	}
 	return w.Write(writer.Bytes())
+}
+
+func onUMount(ctx context.Context, w *response, userHandle Handler) error {
+	_, err := xdr.ReadOpaque(w.req.Body)
+	if err != nil {
+		return err
+	}
+
+	w.writeHeader(ResponseCodeSuccess)
+	return nil
 }
