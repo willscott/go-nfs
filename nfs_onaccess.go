@@ -16,8 +16,7 @@ func onAccess(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	fs, path, err := userHandle.FromHandle(roothandle)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusStale}
 	}
 	mask, err := xdr.ReadUint32(w.req.Body)
 	if err != nil {

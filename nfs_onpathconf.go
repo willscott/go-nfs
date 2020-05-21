@@ -15,8 +15,7 @@ func onPathConf(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	fs, path, err := userHandle.FromHandle(roothandle)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusStale}
 	}
 
 	writer := bytes.NewBuffer([]byte{})

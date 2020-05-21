@@ -16,8 +16,7 @@ func onFSStat(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	fs, path, err := userHandle.FromHandle(roothandle)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusStale}
 	}
 
 	defaults := FSStat{
