@@ -63,8 +63,15 @@ func (c *conn) serve(ctx context.Context) {
 		}
 		log.Printf("request: %v", w.req)
 		err = c.handle(connCtx, w)
+		respErr := w.finish(connCtx)
 		if err != nil {
+			log.Printf("error handling req: %v", err)
 			// failure to handle at a level needing to close the connection.
+			c.Close()
+			return
+		}
+		if respErr != nil {
+			log.Printf("error sending response: %v", respErr)
 			c.Close()
 			return
 		}
@@ -106,29 +113,33 @@ func (c *conn) serializeWrites(ctx context.Context) {
 	}
 }
 
+// Handle a request. errors from this method indicate a failure to read or
+// write on the network stream, and trigger a disconnection of the connection.
 func (c *conn) handle(ctx context.Context, w *response) error {
 	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
 	if handler == nil {
+		log.Printf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)
+		if err := w.drain(ctx); err != nil {
+			return err
+		}
 		return c.err(ctx, w, &ResponseCodeProcUnavailableError{})
 	}
-	err := handler(ctx, w, c.Server.Handler)
-	if err != nil && !w.responded {
-		err = c.err(ctx, w, err)
-		if err != nil {
+	appError := handler(ctx, w, c.Server.Handler)
+	if drainErr := w.drain(ctx); drainErr != nil {
+		return drainErr
+	}
+	if appError != nil && !w.responded {
+		if err := c.err(ctx, w, appError); err != nil {
 			return err
 		}
 	}
-	err = w.drain(ctx)
-	if err != nil {
-		if !w.responded {
-			_ = c.err(ctx, w, err)
-		}
-		return err
-	}
 	if !w.responded {
-		//todo: if handler didn't trigger a write... then what.
+		log.Printf("Handler did not indicate response status via writing or erroring")
+		if err := c.err(ctx, w, &ResponseCodeSystemError{}); err != nil {
+			return err
+		}
 	}
-	return w.finish(ctx)
+	return nil
 }
 
 func (c *conn) err(ctx context.Context, w *response, err error) error {

@@ -17,11 +17,16 @@ type nfsReadArgs struct {
 
 type nfsReadResponse struct {
 	Count uint32
-	Eof   uint32
+	EOF   uint32
 	Data  []byte
 }
 
+// MaxRead is the advertised largest buffer the server is willing to read
 const MaxRead = 1 << 24
+
+// CheckRead is a size where - if a request to read is larger than this,
+// the server will stat the file to learn it's actual size before allocating
+// a buffer to read into.
 const CheckRead = 1 << 15
 
 func onRead(ctx context.Context, w *response, userHandle Handler) error {
@@ -65,7 +70,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	resp.Count = uint32(cnt)
 	resp.Data = resp.Data[:resp.Count]
 	if errors.Is(err, io.EOF) {
-		resp.Eof = 1
+		resp.EOF = 1
 	}
 
 	writer := bytes.NewBuffer([]byte{})
