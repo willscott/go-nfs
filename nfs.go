@@ -13,6 +13,7 @@ func init() {
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureLookup), onLookup)
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureGetAttr), onGetAttr)
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureAccess), onAccess)
+	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureReadlink), onReadLink)
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureRead), onRead)
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureReadDirPlus), onReadDirPlus)
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureFSStat), onFSStat)
