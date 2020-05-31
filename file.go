@@ -154,11 +154,14 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if s.SetGID != nil {
 			egid = *s.SetGID
 		}
-		if err := changer.Chown(file, int(euid), int(egid)); err != nil {
+		if err := changer.Lchown(file, int(euid), int(egid)); err != nil {
 			return err
 		}
 	}
 	if s.SetSize != nil {
+		if cur().Mode()&os.ModeSymlink != 0 {
+			return &NFSStatusError{NFSStatusNotSupp}
+		}
 		fp, err := fs.Open(file)
 		if err != nil {
 			return err
@@ -186,6 +189,14 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		}
 	}
 	return nil
+}
+
+// Mode returns a mode if specified or the provided default mode.
+func (s *SetFileAttributes) Mode(def os.FileMode) os.FileMode {
+	if s.SetMode != nil {
+		return os.FileMode(*s.SetMode) & os.ModePerm
+	}
+	return def
 }
 
 // ReadSetFileAttributes reads an sattr3 xdr stream into a go struct.
