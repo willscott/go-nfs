@@ -7,12 +7,23 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5"
-	nfsc "github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
-// FileAttribute handler is expected to fill in
-type FileAttribute = nfsc.Fattr
+// FileAttribute holds metadata about a filesystem object
+type FileAttribute struct {
+	Type                FileType
+	FileMode            uint32
+	Nlink               uint32
+	UID                 uint32
+	GID                 uint32
+	Filesize            uint64
+	Used                uint64
+	SpecData            [2]uint32
+	FSID                uint64
+	Fileid              uint64
+	Atime, Mtime, Ctime FileTime
+}
 
 // FileType represents a NFS File Type
 type FileType uint32
@@ -49,6 +60,28 @@ func (f FileType) String() string {
 	}
 }
 
+// Mode provides the OS interpreted mode of the file attributes
+func (f *FileAttribute) Mode() os.FileMode {
+	return os.FileMode(f.FileMode)
+}
+
+// FileCacheAttribute is the subset of FileAttribute used by
+// wcc_attr
+type FileCacheAttribute struct {
+	Filesize     uint64
+	Mtime, Ctime FileTime
+}
+
+// AsCache provides the wcc view of the file attributes
+func (f FileAttribute) AsCache() *FileCacheAttribute {
+	wcc := FileCacheAttribute{
+		Filesize: f.Filesize,
+		Mtime:    f.Mtime,
+		Ctime:    f.Ctime,
+	}
+	return &wcc
+}
+
 // ToFileAttribute creates an NFS fattr3 struct from an OS.FileInfo
 func ToFileAttribute(info os.FileInfo) FileAttribute {
 	f := FileAttribute{}
@@ -56,23 +89,23 @@ func ToFileAttribute(info os.FileInfo) FileAttribute {
 	m := info.Mode()
 	f.FileMode = uint32(m)
 	if info.IsDir() {
-		f.Type = uint32(FileTypeDirectory)
+		f.Type = FileTypeDirectory
 	} else if m&os.ModeSymlink != 0 {
-		f.Type = uint32(FileTypeLink)
+		f.Type = FileTypeLink
 	} else if m&os.ModeCharDevice != 0 {
-		f.Type = uint32(FileTypeCharacter)
+		f.Type = FileTypeCharacter
 		// TODO: set major/minor dev number
 		//f.SpecData = 0,0
 	} else if m&os.ModeDevice != 0 {
-		f.Type = uint32(FileTypeBlock)
+		f.Type = FileTypeBlock
 		// TODO: set major/minor dev number
 		//f.SpecData = 0,0
 	} else if m&os.ModeSocket != 0 {
-		f.Type = uint32(FileTypeSocket)
+		f.Type = FileTypeSocket
 	} else if m&os.ModeNamedPipe != 0 {
-		f.Type = uint32(FileTypeFIFO)
+		f.Type = FileTypeFIFO
 	} else {
-		f.Type = uint32(FileTypeRegular)
+		f.Type = FileTypeRegular
 	}
 	// The number of hard links to the file.
 	f.Nlink = 1
@@ -99,20 +132,6 @@ func WritePostOpAttrs(writer io.Writer, fs billy.Filesystem, path []string) {
 	}
 	_ = xdr.Write(writer, uint32(1))
 	_ = xdr.Write(writer, ToFileAttribute(attrs))
-}
-
-// ToNFSTime generates the nfs 64bit time format from a golang time.
-func ToNFSTime(t time.Time) nfsc.NFS3Time {
-	return nfsc.NFS3Time{
-		Seconds:  uint32(t.Unix()),
-		Nseconds: uint32(t.UnixNano()) % uint32(time.Second),
-	}
-}
-
-// FromNFSTime generates a golang time from an nfs time spec
-func FromNFSTime(t nfsc.NFS3Time) *time.Time {
-	out := time.Unix(int64(t.Seconds), int64(t.Nseconds))
-	return &out
 }
 
 // SetFileAttributes represents a command to update some metadata
@@ -176,11 +195,11 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 
 	if s.SetAtime != nil || s.SetMtime != nil {
 		curr := cur()
-		atime := FromNFSTime(curr.Atime)
+		atime := curr.Atime.Native()
 		if s.SetAtime != nil {
 			atime = s.SetAtime
 		}
-		mtime := FromNFSTime(curr.Mtime)
+		mtime := curr.Mtime.Native()
 		if s.SetMtime != nil {
 			mtime = s.SetMtime
 		}
@@ -254,11 +273,11 @@ func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
 		now := time.Now()
 		attrs.SetAtime = &now
 	} else if aTime == 2 {
-		t := nfsc.NFS3Time{}
+		t := FileTime{}
 		if err := xdr.Read(r, t); err != nil {
 			return nil, err
 		}
-		attrs.SetAtime = FromNFSTime(t)
+		attrs.SetAtime = t.Native()
 	}
 	mTime, err := xdr.ReadUint32(r)
 	if err != nil {
@@ -268,11 +287,11 @@ func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
 		now := time.Now()
 		attrs.SetMtime = &now
 	} else if mTime == 2 {
-		t := nfsc.NFS3Time{}
+		t := FileTime{}
 		if err := xdr.Read(r, t); err != nil {
 			return nil, err
 		}
-		attrs.SetMtime = FromNFSTime(t)
+		attrs.SetMtime = t.Native()
 	}
 	return &attrs, nil
 }
