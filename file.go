@@ -108,3 +108,160 @@ func ToNFSTime(t time.Time) nfsc.NFS3Time {
 		Nseconds: uint32(t.UnixNano()) % uint32(time.Second),
 	}
 }
+
+// FromNFSTime generates a golang time from an nfs time spec
+func FromNFSTime(t nfsc.NFS3Time) *time.Time {
+	out := time.Unix(int64(t.Seconds), int64(t.Nseconds))
+	return &out
+}
+
+// SetFileAttributes represents a command to update some metadata
+// about a file.
+type SetFileAttributes struct {
+	SetMode  *uint32
+	SetUID   *uint32
+	SetGID   *uint32
+	SetSize  *uint64
+	SetAtime *time.Time
+	SetMtime *time.Time
+}
+
+// Apply uses a `Change` implementation to set defined attributes on a
+// provided file.
+func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
+	cur := func() *FileAttribute {
+		curOS, err := fs.Lstat(file)
+		if err != nil {
+			return nil
+		}
+		curr := ToFileAttribute(curOS)
+		return &curr
+	}
+
+	if s.SetMode != nil {
+		mode := os.FileMode(*s.SetMode) & os.ModePerm
+		if err := changer.Chmod(file, mode); err != nil {
+			return err
+		}
+	}
+	if s.SetUID != nil || s.SetGID != nil {
+		curr := cur()
+		euid := curr.UID
+		if s.SetUID != nil {
+			euid = *s.SetUID
+		}
+		egid := curr.GID
+		if s.SetGID != nil {
+			egid = *s.SetGID
+		}
+		if err := changer.Chown(file, int(euid), int(egid)); err != nil {
+			return err
+		}
+	}
+	if s.SetSize != nil {
+		fp, err := fs.Open(file)
+		if err != nil {
+			return err
+		}
+		if err := fp.Truncate(int64(*s.SetSize)); err != nil {
+			return err
+		}
+		if err := fp.Close(); err != nil {
+			return err
+		}
+	}
+
+	if s.SetAtime != nil || s.SetMtime != nil {
+		curr := cur()
+		atime := FromNFSTime(curr.Atime)
+		if s.SetAtime != nil {
+			atime = s.SetAtime
+		}
+		mtime := FromNFSTime(curr.Mtime)
+		if s.SetMtime != nil {
+			mtime = s.SetMtime
+		}
+		if err := changer.Chtimes(file, *atime, *mtime); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadSetFileAttributes reads an sattr3 xdr stream into a go struct.
+func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
+	attrs := SetFileAttributes{}
+	hasMode, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if hasMode != 0 {
+		mode, err := xdr.ReadUint32(r)
+		if err != nil {
+			return nil, err
+		}
+		attrs.SetMode = &mode
+	}
+	hasUID, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if hasUID != 0 {
+		uid, err := xdr.ReadUint32(r)
+		if err != nil {
+			return nil, err
+		}
+		attrs.SetUID = &uid
+	}
+	hasGID, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if hasGID != 0 {
+		gid, err := xdr.ReadUint32(r)
+		if err != nil {
+			return nil, err
+		}
+		attrs.SetGID = &gid
+	}
+	hasSize, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if hasSize != 0 {
+		var size uint64
+		attrs.SetSize = &size
+		if err := xdr.Read(r, size); err != nil {
+			return nil, err
+		}
+	}
+	aTime, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if aTime == 1 {
+		now := time.Now()
+		attrs.SetAtime = &now
+	} else if aTime == 2 {
+		t := nfsc.NFS3Time{}
+		if err := xdr.Read(r, t); err != nil {
+			return nil, err
+		}
+		attrs.SetAtime = FromNFSTime(t)
+	}
+	mTime, err := xdr.ReadUint32(r)
+	if err != nil {
+		return nil, err
+	}
+	if mTime == 1 {
+		now := time.Now()
+		attrs.SetMtime = &now
+	} else if mTime == 2 {
+		t := nfsc.NFS3Time{}
+		if err := xdr.Read(r, t); err != nil {
+			return nil, err
+		}
+		attrs.SetMtime = FromNFSTime(t)
+	}
+	return &attrs, nil
+}

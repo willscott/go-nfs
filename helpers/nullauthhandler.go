@@ -26,6 +26,11 @@ func (h *NullAuthHandler) Mount(ctx context.Context, conn net.Conn, req nfs.Moun
 	return
 }
 
+// Change provides an interface for updating file attributes.
+func (h *NullAuthHandler) Change(fs billy.Filesystem) billy.Change {
+	return nil
+}
+
 // FSStat provides information about a filesystem.
 func (h *NullAuthHandler) FSStat(ctx context.Context, f billy.Filesystem, s *nfs.FSStat) error {
 	return nil

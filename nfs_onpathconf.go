@@ -7,6 +7,9 @@ import (
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
+// PathNameMax is the maximum length for a file name
+const PathNameMax = 255
+
 func onPathConf(ctx context.Context, w *response, userHandle Handler) error {
 	roothandle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
@@ -35,7 +38,7 @@ func onPathConf(ctx context.Context, w *response, userHandle Handler) error {
 
 	defaults := PathConf{
 		LinkMax:         1,
-		NameMax:         255,
+		NameMax:         PathNameMax,
 		NoTrunc:         1,
 		ChownRestricted: 0,
 		CaseInsensitive: 0,

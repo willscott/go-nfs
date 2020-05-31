@@ -195,3 +195,25 @@ func (s *NFSStatusErrorWithOpAttr) MarshalBinary() (data []byte, err error) {
 	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
 	return resp[:], nil
 }
+
+// NFSStatusErrorWithWccData is an NFS error where a 'wcc_data' is expected
+type NFSStatusErrorWithWccData struct {
+	NFSStatus
+}
+
+// Error is The wrapped error
+func (s *NFSStatusErrorWithWccData) Error() string {
+	return s.NFSStatus.String()
+}
+
+// Code for NFS issues are successful RPC responses
+func (s *NFSStatusErrorWithWccData) Code() ResponseCode {
+	return ResponseCodeSuccess
+}
+
+// MarshalBinary - The binary form of the code.
+func (s *NFSStatusErrorWithWccData) MarshalBinary() (data []byte, err error) {
+	var resp [12]byte
+	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
+	return resp[:], nil
+}
