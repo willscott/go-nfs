@@ -1,7 +1,9 @@
 package nfs
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"net"
 	"time"
@@ -10,6 +12,7 @@ import (
 // Server is a handle to the listening NFS server.
 type Server struct {
 	Handler
+	ID [8]byte
 	context.Context
 }
 
@@ -46,6 +49,9 @@ func (s *Server) Serve(l net.Listener) error {
 	baseCtx := context.Background()
 	if s.Context != nil {
 		baseCtx = s.Context
+	}
+	if bytes.Equal(s.ID[:], []byte{0, 0, 0, 0, 0, 0, 0, 0}) {
+		rand.Reader.Read(s.ID[:])
 	}
 
 	var tempDelay time.Duration

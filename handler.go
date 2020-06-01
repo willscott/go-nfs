@@ -12,6 +12,8 @@ type Handler interface {
 	// Required methods
 
 	Mount(context.Context, net.Conn, MountRequest) (MountStatus, billy.Filesystem, []AuthFlavor)
+
+	// Change can return 'nil' if filesystem is read-only
 	Change(billy.Filesystem) billy.Change
 
 	// Optional methods - generic helpers or trivial implementations can be sufficient depending on use case.
