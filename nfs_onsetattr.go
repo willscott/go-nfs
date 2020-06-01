@@ -58,10 +58,6 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	changer := userHandle.Change(fs)
-	if changer == nil {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
-	}
-
 	if err := attrs.Apply(changer, fs, fs.Join(path...)); err != nil {
 		return err
 	}
@@ -76,9 +72,6 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 	if err := xdr.Write(writer, *preAttr); err != nil {
-		return err
-	}
-	if err := xdr.Write(writer, uint32(1)); err != nil {
 		return err
 	}
 	WritePostOpAttrs(writer, fs, path)

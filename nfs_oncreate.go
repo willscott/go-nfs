@@ -83,10 +83,8 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	fp := userHandle.ToHandle(fs, append(path, file.Name()))
 	changer := userHandle.Change(fs)
-	if changer != nil {
-		if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusIO}
-		}
+	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+		return &NFSStatusErrorWithWccData{NFSStatusIO}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -94,6 +92,10 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
+	// "handle follows"
+	if err := xdr.Write(writer, uint32(1)); err != nil {
+		return err
+	}
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}

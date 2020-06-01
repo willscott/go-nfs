@@ -40,9 +40,9 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusErrorWithWccData{NFSStatusExist}
 	}
 
-	newFile := append(path, string(obj.Filename))
-	newFilePath := fs.Join(newFile...)
-	if s, err := fs.Stat(newFilePath); err == nil {
+	newFolder := append(path, string(obj.Filename))
+	newFolderPath := fs.Join(newFolder...)
+	if s, err := fs.Stat(newFolderPath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusErrorWithWccData{NFSStatusExist}
 		}
@@ -54,14 +54,14 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 		}
 	}
 
-	if err := fs.MkdirAll(newFilePath, attrs.Mode(mkdirDefaultMode)); err != nil {
+	if err := fs.MkdirAll(newFolderPath, attrs.Mode(mkdirDefaultMode)); err != nil {
 		return &NFSStatusErrorWithWccData{NFSStatusAccess}
 	}
 
-	fp := userHandle.ToHandle(fs, newFile)
+	fp := userHandle.ToHandle(fs, newFolder)
 	changer := userHandle.Change(fs)
 	if changer != nil {
-		if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+		if err := attrs.Apply(changer, fs, newFolderPath); err != nil {
 			return &NFSStatusErrorWithWccData{NFSStatusIO}
 		}
 	}
@@ -71,10 +71,14 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
+	// "handle follows"
+	if err := xdr.Write(writer, uint32(1)); err != nil {
+		return err
+	}
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, newFile)
+	WritePostOpAttrs(writer, fs, newFolder)
 
 	// dir_wcc (we don't include pre_op_attr)
 	if err := xdr.Write(writer, uint32(0)); err != nil {

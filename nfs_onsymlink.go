@@ -65,6 +65,10 @@ func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
+	// "handle follows"
+	if err := xdr.Write(writer, uint32(1)); err != nil {
+		return err
+	}
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}

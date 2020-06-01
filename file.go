@@ -2,6 +2,7 @@ package nfs
 
 import (
 	"io"
+	"log"
 	"os"
 	"syscall"
 	"time"
@@ -127,8 +128,10 @@ func ToFileAttribute(info os.FileInfo) FileAttribute {
 // WritePostOpAttrs writes the `post_op_attr` representation of a files attributes
 func WritePostOpAttrs(writer io.Writer, fs billy.Filesystem, path []string) {
 	attrs, err := fs.Stat(fs.Join(path...))
-	if err != nil {
+	if err != nil || attrs == nil {
+		log.Printf("err writing attrs for %s: %v", fs.Join(path...), err)
 		_ = xdr.Write(writer, uint32(0))
+		return
 	}
 	_ = xdr.Write(writer, uint32(1))
 	_ = xdr.Write(writer, ToFileAttribute(attrs))
@@ -148,23 +151,24 @@ type SetFileAttributes struct {
 // Apply uses a `Change` implementation to set defined attributes on a
 // provided file.
 func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
-	cur := func() *FileAttribute {
-		curOS, err := fs.Lstat(file)
-		if err != nil {
-			return nil
-		}
-		curr := ToFileAttribute(curOS)
-		return &curr
+	curOS, err := fs.Lstat(file)
+	if err != nil {
+		return nil
 	}
+	curr := ToFileAttribute(curOS)
 
 	if s.SetMode != nil {
 		mode := os.FileMode(*s.SetMode) & os.ModePerm
-		if err := changer.Chmod(file, mode); err != nil {
-			return err
+		if mode != curr.Mode().Perm() {
+			if changer == nil {
+				return &NFSStatusError{NFSStatusNotSupp}
+			}
+			if err := changer.Chmod(file, mode); err != nil {
+				return err
+			}
 		}
 	}
 	if s.SetUID != nil || s.SetGID != nil {
-		curr := cur()
 		euid := curr.UID
 		if s.SetUID != nil {
 			euid = *s.SetUID
@@ -173,12 +177,17 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if s.SetGID != nil {
 			egid = *s.SetGID
 		}
-		if err := changer.Lchown(file, int(euid), int(egid)); err != nil {
-			return err
+		if euid != curr.UID || egid != curr.GID {
+			if changer == nil {
+				return &NFSStatusError{NFSStatusNotSupp}
+			}
+			if err := changer.Lchown(file, int(euid), int(egid)); err != nil {
+				return err
+			}
 		}
 	}
 	if s.SetSize != nil {
-		if cur().Mode()&os.ModeSymlink != 0 {
+		if curr.Mode()&os.ModeSymlink != 0 {
 			return &NFSStatusError{NFSStatusNotSupp}
 		}
 		fp, err := fs.Open(file)
@@ -194,7 +203,6 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 	}
 
 	if s.SetAtime != nil || s.SetMtime != nil {
-		curr := cur()
 		atime := curr.Atime.Native()
 		if s.SetAtime != nil {
 			atime = s.SetAtime
@@ -203,8 +211,13 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if s.SetMtime != nil {
 			mtime = s.SetMtime
 		}
-		if err := changer.Chtimes(file, *atime, *mtime); err != nil {
-			return err
+		if atime != curr.Atime.Native() || mtime != curr.Mtime.Native() {
+			if changer == nil {
+				return &NFSStatusError{NFSStatusNotSupp}
+			}
+			if err := changer.Chtimes(file, *atime, *mtime); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -261,7 +274,7 @@ func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
 	if hasSize != 0 {
 		var size uint64
 		attrs.SetSize = &size
-		if err := xdr.Read(r, size); err != nil {
+		if err := xdr.Read(r, &size); err != nil {
 			return nil, err
 		}
 	}

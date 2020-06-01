@@ -129,6 +129,7 @@ func (c *conn) handle(ctx context.Context, w *response) error {
 		return drainErr
 	}
 	if appError != nil && !w.responded {
+		log.Printf("call to %+v failed: %v", handler, appError)
 		if err := c.err(ctx, w, appError); err != nil {
 			return err
 		}

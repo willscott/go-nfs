@@ -3,6 +3,8 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"io"
+	"log"
 	"math"
 	"os"
 
@@ -21,7 +23,7 @@ const (
 
 type writeArgs struct {
 	Handle []byte
-	Offset uint32
+	Offset uint64
 	Count  uint32
 	How    uint32
 	Data   []byte
@@ -29,7 +31,7 @@ type writeArgs struct {
 
 func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	var req writeArgs
-	if err := xdr.Read(w.req.Body, req); err != nil {
+	if err := xdr.Read(w.req.Body, &req); err != nil {
 		return err
 	}
 
@@ -58,12 +60,14 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	preOpCache := ToFileAttribute(info).AsCache()
 
 	// now the actual op.
-	file, err := fs.Open(fs.Join(path...))
+	file, err := fs.OpenFile(fs.Join(path...), os.O_RDWR, info.Mode().Perm())
 	if err != nil {
 		return &NFSStatusErrorWithWccData{NFSStatusAccess}
 	}
-	if _, err := file.Seek(int64(req.Offset), 0); err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusIO}
+	if req.Offset > 0 {
+		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
+			return &NFSStatusErrorWithWccData{NFSStatusIO}
+		}
 	}
 	end := req.Count
 	if len(req.Data) < int(end) {
@@ -71,9 +75,11 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	writtenCount, err := file.Write(req.Data[:end])
 	if err != nil {
+		log.Printf("Error writing: %v", err)
 		return &NFSStatusErrorWithWccData{NFSStatusIO}
 	}
 	if err := file.Close(); err != nil {
+		log.Printf("error closing: %v", err)
 		return &NFSStatusErrorWithWccData{NFSStatusIO}
 	}
 
@@ -88,7 +94,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, *preOpCache); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, append(path, file.Name()))
+	WritePostOpAttrs(writer, fs, path)
 	if err := xdr.Write(writer, uint32(writtenCount)); err != nil {
 		return err
 	}
