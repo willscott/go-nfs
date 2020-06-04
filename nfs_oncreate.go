@@ -15,6 +15,7 @@ const (
 )
 
 func onCreate(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	obj := DirOpArg{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
@@ -39,52 +40,52 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 			return err
 		}
 		// TODO: support 'exclusive' mode.
-		return &NFSStatusErrorWithWccData{NFSStatusNotSupp}
+		return &NFSStatusError{NFSStatusNotSupp}
 	} else {
 		// invalid
-		return &NFSStatusErrorWithWccData{NFSStatusNotSupp}
+		return &NFSStatusError{NFSStatusNotSupp}
 	}
 
 	fs, path, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS}
 	}
 
 	if len(string(obj.Filename)) > PathNameMax {
-		return &NFSStatusErrorWithWccData{NFSStatusNameTooLong}
+		return &NFSStatusError{NFSStatusNameTooLong}
 	}
 
 	newFilePath := fs.Join(append(path, string(obj.Filename))...)
 	if s, err := fs.Stat(newFilePath); err == nil {
 		if s.IsDir() {
-			return &NFSStatusErrorWithWccData{NFSStatusExist}
+			return &NFSStatusError{NFSStatusExist}
 		}
 		if how == createModeGuarded {
-			return &NFSStatusErrorWithWccData{NFSStatusExist}
+			return &NFSStatusError{NFSStatusExist}
 		}
 	} else {
 		if s, err := fs.Stat(fs.Join(path...)); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess}
 		} else if !s.IsDir() {
-			return &NFSStatusErrorWithWccData{NFSStatusNotDir}
+			return &NFSStatusError{NFSStatusNotDir}
 		}
 	}
 
 	file, err := fs.Create(newFilePath)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 	if err := file.Close(); err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 
 	fp := userHandle.ToHandle(fs, append(path, file.Name()))
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusIO}
+		return &NFSStatusError{NFSStatusIO}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -99,13 +100,13 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, append(path, file.Name()))
+	WritePostOpAttrs(writer, tryStat(fs, append(path, file.Name())))
 
 	// dir_wcc (we don't include pre_op_attr)
 	if err := xdr.Write(writer, uint32(0)); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, path)
+	WritePostOpAttrs(writer, tryStat(fs, path))
 
 	return w.Write(writer.Bytes())
 }

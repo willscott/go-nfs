@@ -158,16 +158,13 @@ func (c *conn) err(ctx context.Context, w *response, err error) error {
 		return nil
 	}
 
-	var rpcErr RPCError
-	if errors.As(err, &rpcErr) {
-		if writeErr := w.writeHeader(rpcErr.Code()); writeErr != nil {
-			return writeErr
-		}
-
-		body, _ := rpcErr.MarshalBinary()
-		return w.Write(body)
+	rpcErr := w.errorFmt(err)
+	if writeErr := w.writeHeader(rpcErr.Code()); writeErr != nil {
+		return writeErr
 	}
-	return w.writeHeader(ResponseCodeSystemErr)
+
+	body, _ := rpcErr.MarshalBinary()
+	return w.Write(body)
 }
 
 type request struct {
@@ -190,6 +187,7 @@ type response struct {
 	writer    *bytes.Buffer
 	responded bool
 	err       error
+	errorFmt  func(error) RPCError
 	req       *request
 }
 
@@ -321,8 +319,9 @@ func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *
 	}
 
 	w = &response{
-		conn: c,
-		req:  &req,
+		conn:     c,
+		req:      &req,
+		errorFmt: basicErrorFormatter,
 		// TODO: use a pool for these.
 		writer: bytes.NewBuffer([]byte{}),
 	}

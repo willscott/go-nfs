@@ -25,7 +25,7 @@ func onPathConf(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, path)
+	WritePostOpAttrs(writer, tryStat(fs, path))
 
 	type PathConf struct {
 		LinkMax         uint32

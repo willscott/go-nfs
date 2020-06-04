@@ -12,12 +12,13 @@ func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Fi
 	writer := bytes.NewBuffer([]byte{})
 	xdr.Write(writer, uint32(NFSStatusOk))
 	xdr.Write(writer, handle)
-	WritePostOpAttrs(writer, fs, entPath)
-	WritePostOpAttrs(writer, fs, dirPath)
+	WritePostOpAttrs(writer, tryStat(fs, entPath))
+	WritePostOpAttrs(writer, tryStat(fs, dirPath))
 	return writer.Bytes()
 }
 
 func onLookup(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = opAttrErrorFormatter
 	obj := DirOpArg{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
@@ -27,11 +28,11 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, p, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithOpAttr{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	contents, err := fs.ReadDir(fs.Join(p...))
 	if err != nil {
-		return &NFSStatusErrorWithOpAttr{NFSStatusNotDir}
+		return &NFSStatusError{NFSStatusNotDir}
 	}
 
 	// Special cases for "." and ".."
@@ -40,7 +41,7 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	if bytes.Equal(obj.Filename, []byte("..")) {
 		if len(p) == 0 {
-			return &NFSStatusErrorWithOpAttr{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess}
 		}
 		pPath := p[0 : len(p)-1]
 		pHandle := userHandle.ToHandle(fs, pPath)
@@ -56,5 +57,5 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		}
 	}
 
-	return &NFSStatusErrorWithOpAttr{NFSStatusNoEnt}
+	return &NFSStatusError{NFSStatusNoEnt}
 }

@@ -21,9 +21,9 @@ func init() {
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureMkDir), onMkdir)       // 9
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureSymlink), onSymlink)   // 10
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureMkNod), onMknod)       // 11
-	// Remove // 12
-	// Rmdir // 13
-	// Rename // 14
+	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureRemove), onRemove)     // 12
+	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureRmDir), onRmDir)       // 13
+	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureRename), onRename)     // 14
 	// Link // 15
 	// ReadDir // 16
 	RegisterMessageHandler(nfsServiceID, uint32(NFSProcedureReadDirPlus), onReadDirPlus) // 17

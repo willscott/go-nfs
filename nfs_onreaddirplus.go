@@ -21,14 +21,14 @@ type readDirPlusEntity struct {
 	FileID     uint64
 	Name       []byte
 	Cookie     uint64
-	HasAttr    uint32
-	Attributes FileAttribute
+	Attributes *FileAttribute
 	HasHandle  uint32
 	Handle     []byte
 	Next       uint32
 }
 
 func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = opAttrErrorFormatter
 	obj := readDirPlusArgs{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
@@ -38,16 +38,16 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, p, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithOpAttr{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 
 	contents, err := fs.ReadDir(fs.Join(p...))
 	if err != nil {
-		return &NFSStatusErrorWithOpAttr{NFSStatusNotDir}
+		return &NFSStatusError{NFSStatusNotDir}
 	}
 
 	if obj.DirCount < 1024 || obj.MaxCount < 4096 {
-		return &NFSStatusErrorWithOpAttr{NFSStatusTooSmall}
+		return &NFSStatusError{NFSStatusTooSmall}
 	}
 
 	entities := make([]readDirPlusEntity, 0)
@@ -70,7 +70,6 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 				FileID:     binary.BigEndian.Uint64(handle[0:8]),
 				Name:       []byte(c.Name()),
 				Cookie:     uint64(i + 3),
-				HasAttr:    1,
 				Attributes: attrs,
 				HasHandle:  1,
 				Handle:     handle,
@@ -90,14 +89,14 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	verif := vHash.Sum([]byte{})[0:8]
 
 	if obj.Cookie != 0 && binary.BigEndian.Uint64(verif) != obj.CookieVerif {
-		return &NFSStatusErrorWithOpAttr{NFSStatusBadCookie}
+		return &NFSStatusError{NFSStatusBadCookie}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, p)
+	WritePostOpAttrs(writer, tryStat(fs, p))
 
 	var fixedVerif [8]byte
 	copy(fixedVerif[:], verif)

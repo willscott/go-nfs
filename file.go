@@ -84,7 +84,7 @@ func (f FileAttribute) AsCache() *FileCacheAttribute {
 }
 
 // ToFileAttribute creates an NFS fattr3 struct from an OS.FileInfo
-func ToFileAttribute(info os.FileInfo) FileAttribute {
+func ToFileAttribute(info os.FileInfo) *FileAttribute {
 	f := FileAttribute{}
 
 	m := info.Mode()
@@ -122,19 +122,43 @@ func ToFileAttribute(info os.FileInfo) FileAttribute {
 	f.Atime = ToNFSTime(info.ModTime())
 	f.Mtime = f.Atime
 	f.Ctime = f.Atime
-	return f
+	return &f
+}
+
+// tryStat attempts to create a FileAttribute from a path.
+func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
+	attrs, err := fs.Stat(fs.Join(path...))
+	if err != nil || attrs == nil {
+		log.Printf("err loading attrs for %s: %v", fs.Join(path...), err)
+		return nil
+	}
+	return ToFileAttribute(attrs)
+}
+
+// WriteWcc writes the `wcc_data` representation of an object.
+func WriteWcc(writer io.Writer, pre *FileCacheAttribute, post *FileAttribute) {
+	if pre == nil {
+		_ = xdr.Write(writer, uint32(0))
+	} else {
+		_ = xdr.Write(writer, uint32(1))
+		_ = xdr.Write(writer, *pre)
+	}
+	if post == nil {
+		_ = xdr.Write(writer, uint32(0))
+	} else {
+		_ = xdr.Write(writer, uint32(1))
+		_ = xdr.Write(writer, *post)
+	}
 }
 
 // WritePostOpAttrs writes the `post_op_attr` representation of a files attributes
-func WritePostOpAttrs(writer io.Writer, fs billy.Filesystem, path []string) {
-	attrs, err := fs.Stat(fs.Join(path...))
-	if err != nil || attrs == nil {
-		log.Printf("err writing attrs for %s: %v", fs.Join(path...), err)
+func WritePostOpAttrs(writer io.Writer, post *FileAttribute) {
+	if post == nil {
 		_ = xdr.Write(writer, uint32(0))
-		return
+	} else {
+		_ = xdr.Write(writer, uint32(1))
+		_ = xdr.Write(writer, *post)
 	}
-	_ = xdr.Write(writer, uint32(1))
-	_ = xdr.Write(writer, ToFileAttribute(attrs))
 }
 
 // SetFileAttributes represents a command to update some metadata

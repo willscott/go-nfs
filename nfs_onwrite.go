@@ -30,6 +30,7 @@ type writeArgs struct {
 }
 
 func onWrite(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	var req writeArgs
 	if err := xdr.Read(w.req.Body, &req); err != nil {
 		return err
@@ -37,36 +38,36 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, path, err := userHandle.FromHandle(req.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS}
 	}
 	if len(req.Data) > math.MaxInt32 || req.Count > math.MaxInt32 {
-		return &NFSStatusErrorWithWccData{NFSStatusFBig}
+		return &NFSStatusError{NFSStatusFBig}
 	}
 
 	// stat first for pre-op wcc.
 	info, err := fs.Stat(fs.Join(path...))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &NFSStatusErrorWithWccData{NFSStatusNoEnt}
+			return &NFSStatusError{NFSStatusNoEnt}
 		}
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 	if !info.Mode().IsRegular() {
-		return &NFSStatusErrorWithWccData{NFSStatusInval}
+		return &NFSStatusError{NFSStatusInval}
 	}
 	preOpCache := ToFileAttribute(info).AsCache()
 
 	// now the actual op.
 	file, err := fs.OpenFile(fs.Join(path...), os.O_RDWR, info.Mode().Perm())
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 	if req.Offset > 0 {
 		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusIO}
+			return &NFSStatusError{NFSStatusIO}
 		}
 	}
 	end := req.Count
@@ -76,11 +77,11 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	writtenCount, err := file.Write(req.Data[:end])
 	if err != nil {
 		log.Printf("Error writing: %v", err)
-		return &NFSStatusErrorWithWccData{NFSStatusIO}
+		return &NFSStatusError{NFSStatusIO}
 	}
 	if err := file.Close(); err != nil {
 		log.Printf("error closing: %v", err)
-		return &NFSStatusErrorWithWccData{NFSStatusIO}
+		return &NFSStatusError{NFSStatusIO}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -88,13 +89,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
-	if err := xdr.Write(writer, uint32(1)); err != nil {
-		return err
-	}
-	if err := xdr.Write(writer, *preOpCache); err != nil {
-		return err
-	}
-	WritePostOpAttrs(writer, fs, path)
+	WriteWcc(writer, preOpCache, tryStat(fs, path))
 	if err := xdr.Write(writer, uint32(writtenCount)); err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package nfs
 import (
 	"encoding"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -152,6 +153,17 @@ func (r *ResponseCodeSystemError) MarshalBinary() (data []byte, err error) {
 	return []byte{}, nil
 }
 
+// basicErrorFormatter is the default error handler for response errors.
+// if the error is already formatted, it is directly written. Otherwise,
+// ResponseCodeSystemError is sent to the client.
+func basicErrorFormatter(err error) RPCError {
+	var rpcErr RPCError
+	if errors.As(err, &rpcErr) {
+		return rpcErr
+	}
+	return &ResponseCodeSystemError{}
+}
+
 // NFSStatusError represents an error at the NFS level.
 type NFSStatusError struct {
 	NFSStatus
@@ -174,46 +186,32 @@ func (s *NFSStatusError) MarshalBinary() (data []byte, err error) {
 	return resp[:], nil
 }
 
-// NFSStatusErrorWithOpAttr is an NFS error where a 'post_op_attr' is expected
-type NFSStatusErrorWithOpAttr struct {
-	NFSStatus
+// StatusErrorWithBody is an NFS error with a payload.
+type StatusErrorWithBody struct {
+	NFSStatusError
+	Body []byte
 }
 
-// Error is The wrapped error
-func (s *NFSStatusErrorWithOpAttr) Error() string {
-	return s.NFSStatus.String()
+// MarshalBinary provides the wire format of the error response
+func (s *StatusErrorWithBody) MarshalBinary() (data []byte, err error) {
+	head, err := s.NFSStatusError.MarshalBinary()
+	return append(head, s.Body...), err
 }
 
-// Code for NFS issues are successful RPC responses
-func (s *NFSStatusErrorWithOpAttr) Code() ResponseCode {
-	return ResponseCodeSuccess
+// errFormatterWithBody appends a provided body to errors
+func errFormatterWithBody(body []byte) func(err error) RPCError {
+	return func(err error) RPCError {
+		var nfsErr NFSStatusError
+		if errors.As(err, &nfsErr) {
+			return &StatusErrorWithBody{nfsErr, body[:]}
+		}
+		return &ResponseCodeSystemError{}
+	}
 }
 
-// MarshalBinary - The binary form of the code.
-func (s *NFSStatusErrorWithOpAttr) MarshalBinary() (data []byte, err error) {
-	var resp [8]byte
-	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
-	return resp[:], nil
-}
-
-// NFSStatusErrorWithWccData is an NFS error where a 'wcc_data' is expected
-type NFSStatusErrorWithWccData struct {
-	NFSStatus
-}
-
-// Error is The wrapped error
-func (s *NFSStatusErrorWithWccData) Error() string {
-	return s.NFSStatus.String()
-}
-
-// Code for NFS issues are successful RPC responses
-func (s *NFSStatusErrorWithWccData) Code() ResponseCode {
-	return ResponseCodeSuccess
-}
-
-// MarshalBinary - The binary form of the code.
-func (s *NFSStatusErrorWithWccData) MarshalBinary() (data []byte, err error) {
-	var resp [12]byte
-	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
-	return resp[:], nil
-}
+var (
+	opAttrErrorBody       = [4]byte{}
+	opAttrErrorFormatter  = errFormatterWithBody(opAttrErrorBody[:])
+	wccDataErrorBody      = [8]byte{}
+	wccDataErrorFormatter = errFormatterWithBody(wccDataErrorBody[:])
+)

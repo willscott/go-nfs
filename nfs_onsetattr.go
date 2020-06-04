@@ -11,6 +11,7 @@ import (
 )
 
 func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
 		// TODO: wrap
@@ -19,7 +20,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, path, err := userHandle.FromHandle(handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	attrs, err := ReadSetFileAttributes(w.req.Body)
 	if err != nil {
@@ -29,7 +30,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	info, err := fs.Lstat(fs.Join(path...))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &NFSStatusErrorWithWccData{NFSStatusNoEnt}
+			return &NFSStatusError{NFSStatusNoEnt}
 		}
 		// TODO: wrap
 		return err
@@ -46,15 +47,15 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 			if !t.EqualTimespec(stat.Ctimespec.Unix()) {
-				return &NFSStatusErrorWithWccData{NFSStatusNotSync}
+				return &NFSStatusError{NFSStatusNotSync}
 			}
 		} else {
-			return &NFSStatusErrorWithWccData{NFSStatusNotSupp}
+			return &NFSStatusError{NFSStatusNotSupp}
 		}
 	}
 
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS}
 	}
 
 	changer := userHandle.Change(fs)
@@ -68,13 +69,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return err
 	}
-	if err := xdr.Write(writer, uint32(1)); err != nil {
-		return err
-	}
-	if err := xdr.Write(writer, *preAttr); err != nil {
-		return err
-	}
-	WritePostOpAttrs(writer, fs, path)
+	WriteWcc(writer, preAttr, tryStat(fs, path))
 
 	return w.Write(writer.Bytes())
 }

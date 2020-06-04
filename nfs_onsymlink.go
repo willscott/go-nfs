@@ -9,6 +9,7 @@ import (
 )
 
 func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	obj := DirOpArg{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
@@ -27,36 +28,36 @@ func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, path, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS}
 	}
 
 	if len(string(obj.Filename)) > PathNameMax {
-		return &NFSStatusErrorWithWccData{NFSStatusNameTooLong}
+		return &NFSStatusError{NFSStatusNameTooLong}
 	}
 
 	newFilePath := fs.Join(append(path, string(obj.Filename))...)
 	if _, err := fs.Stat(newFilePath); err == nil {
-		return &NFSStatusErrorWithWccData{NFSStatusExist}
+		return &NFSStatusError{NFSStatusExist}
 	}
 	if s, err := fs.Stat(fs.Join(path...)); err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	} else if !s.IsDir() {
-		return &NFSStatusErrorWithWccData{NFSStatusNotDir}
+		return &NFSStatusError{NFSStatusNotDir}
 	}
 
 	err = fs.Symlink(string(target), newFilePath)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 
 	fp := userHandle.ToHandle(fs, append(path, string(obj.Filename)))
 	changer := userHandle.Change(fs)
 	if changer != nil {
 		if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusIO}
+			return &NFSStatusError{NFSStatusIO}
 		}
 	}
 
@@ -72,13 +73,9 @@ func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, append(path, string(obj.Filename)))
+	WritePostOpAttrs(writer, tryStat(fs, append(path, string(obj.Filename))))
 
-	// dir_wcc (we don't include pre_op_attr)
-	if err := xdr.Write(writer, uint32(0)); err != nil {
-		return err
-	}
-	WritePostOpAttrs(writer, fs, path)
+	WriteWcc(writer, nil, tryStat(fs, path))
 
 	return w.Write(writer.Bytes())
 }

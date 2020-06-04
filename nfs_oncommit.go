@@ -10,6 +10,7 @@ import (
 
 // onCommit - note this is a no-op, as we always push writes to the backing store.
 func onCommit(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
 		// TODO: wrap
@@ -19,10 +20,10 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, path, err := userHandle.FromHandle(handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusServerFault}
+		return &NFSStatusError{NFSStatusServerFault}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -34,7 +35,7 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(0)); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, path)
+	WritePostOpAttrs(writer, tryStat(fs, path))
 	// write the 8 bytes of write verification.
 	if err := xdr.Write(writer, w.Server.ID); err != nil {
 		return err

@@ -13,6 +13,7 @@ const (
 )
 
 func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = wccDataErrorFormatter
 	obj := DirOpArg{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
@@ -27,42 +28,42 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 
 	fs, path, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusErrorWithWccData{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS}
 	}
 
 	if len(string(obj.Filename)) > PathNameMax {
-		return &NFSStatusErrorWithWccData{NFSStatusNameTooLong}
+		return &NFSStatusError{NFSStatusNameTooLong}
 	}
 	if string(obj.Filename) == "." || string(obj.Filename) == ".." {
-		return &NFSStatusErrorWithWccData{NFSStatusExist}
+		return &NFSStatusError{NFSStatusExist}
 	}
 
 	newFolder := append(path, string(obj.Filename))
 	newFolderPath := fs.Join(newFolder...)
 	if s, err := fs.Stat(newFolderPath); err == nil {
 		if s.IsDir() {
-			return &NFSStatusErrorWithWccData{NFSStatusExist}
+			return &NFSStatusError{NFSStatusExist}
 		}
 	} else {
 		if s, err := fs.Stat(fs.Join(path...)); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess}
 		} else if !s.IsDir() {
-			return &NFSStatusErrorWithWccData{NFSStatusNotDir}
+			return &NFSStatusError{NFSStatusNotDir}
 		}
 	}
 
 	if err := fs.MkdirAll(newFolderPath, attrs.Mode(mkdirDefaultMode)); err != nil {
-		return &NFSStatusErrorWithWccData{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 
 	fp := userHandle.ToHandle(fs, newFolder)
 	changer := userHandle.Change(fs)
 	if changer != nil {
 		if err := attrs.Apply(changer, fs, newFolderPath); err != nil {
-			return &NFSStatusErrorWithWccData{NFSStatusIO}
+			return &NFSStatusError{NFSStatusIO}
 		}
 	}
 
@@ -78,13 +79,9 @@ func onMkdir(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, newFolder)
+	WritePostOpAttrs(writer, tryStat(fs, newFolder))
 
-	// dir_wcc (we don't include pre_op_attr)
-	if err := xdr.Write(writer, uint32(0)); err != nil {
-		return err
-	}
-	WritePostOpAttrs(writer, fs, path)
+	WriteWcc(writer, nil, tryStat(fs, path))
 
 	return w.Write(writer.Bytes())
 }

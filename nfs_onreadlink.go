@@ -9,6 +9,7 @@ import (
 )
 
 func onReadLink(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = opAttrErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
 		// TODO: wrap
@@ -16,25 +17,25 @@ func onReadLink(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	fs, path, err := userHandle.FromHandle(handle)
 	if err != nil {
-		return &NFSStatusErrorWithOpAttr{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale}
 	}
 
 	out, err := fs.Readlink(fs.Join(path...))
 	if err != nil {
 		if info, err := fs.Stat(fs.Join(path...)); err == nil {
 			if info.Mode()&os.ModeSymlink == 0 {
-				return &NFSStatusErrorWithOpAttr{NFSStatusInval}
+				return &NFSStatusError{NFSStatusInval}
 			}
 		}
 		// err
-		return &NFSStatusErrorWithOpAttr{NFSStatusAccess}
+		return &NFSStatusError{NFSStatusAccess}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return err
 	}
-	WritePostOpAttrs(writer, fs, path)
+	WritePostOpAttrs(writer, tryStat(fs, path))
 
 	if err := xdr.Write(writer, out); err != nil {
 		return err
