@@ -16,7 +16,6 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	from := DirOpArg{}
 	err := xdr.Read(w.req.Body, &from)
 	if err != nil {
-		// TODO: wrap
 		return err
 	}
 	fs, fromPath, err := userHandle.FromHandle(from.Handle)
@@ -27,7 +26,6 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	to := DirOpArg{}
 	err = xdr.Read(w.req.Body, &to)
 	if err != nil {
-		// TODO: wrap
 		return err
 	}
 	fs2, toPath, err := userHandle.FromHandle(to.Handle)
