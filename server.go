@@ -51,7 +51,9 @@ func (s *Server) Serve(l net.Listener) error {
 		baseCtx = s.Context
 	}
 	if bytes.Equal(s.ID[:], []byte{0, 0, 0, 0, 0, 0, 0, 0}) {
-		rand.Reader.Read(s.ID[:])
+		if _, err := rand.Reader.Read(s.ID[:]); err != nil {
+			return err
+		}
 	}
 
 	var tempDelay time.Duration

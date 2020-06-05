@@ -12,8 +12,8 @@ const (
 )
 
 func init() {
-	RegisterMessageHandler(mountServiceID, uint32(MountProcMount), onMount)
-	RegisterMessageHandler(mountServiceID, uint32(MountProcUmnt), onUMount)
+	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcMount), onMount)
+	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcUmnt), onUMount)
 }
 
 func onMount(ctx context.Context, w *response, userHandle Handler) error {
@@ -25,7 +25,9 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 	mountReq := MountRequest{Header: w.req.Header, Dirpath: dirpath}
 	status, handle, flavors := userHandle.Mount(ctx, w.conn, mountReq)
 
-	w.writeHeader(ResponseCodeSuccess)
+	if err := w.writeHeader(ResponseCodeSuccess); err != nil {
+		return err
+	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(status)); err != nil {
@@ -35,8 +37,8 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 	rootHndl := userHandle.ToHandle(handle, []string{})
 
 	if status == MountStatusOk {
-		xdr.Write(writer, rootHndl)
-		xdr.Write(writer, flavors)
+		_ = xdr.Write(writer, rootHndl)
+		_ = xdr.Write(writer, flavors)
 	}
 	return w.Write(writer.Bytes())
 }
@@ -47,6 +49,5 @@ func onUMount(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
-	w.writeHeader(ResponseCodeSuccess)
-	return nil
+	return w.writeHeader(ResponseCodeSuccess)
 }

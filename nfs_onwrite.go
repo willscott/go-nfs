@@ -46,6 +46,9 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if len(req.Data) > math.MaxInt32 || req.Count > math.MaxInt32 {
 		return &NFSStatusError{NFSStatusFBig}
 	}
+	if req.How != uint32(unstable) && req.How != uint32(dataSync) && req.How != uint32(fileSync) {
+		return &NFSStatusError{NFSStatusInval}
+	}
 
 	// stat first for pre-op wcc.
 	info, err := fs.Stat(fs.Join(path...))

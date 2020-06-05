@@ -237,7 +237,9 @@ func (w *response) writeHeader(code ResponseCode) error {
 // Write a response to an xdr message
 func (w *response) Write(dat []byte) error {
 	if !w.responded {
-		w.writeHeader(ResponseCodeSuccess)
+		if err := w.writeHeader(ResponseCodeSuccess); err != nil {
+			return err
+		}
 	}
 
 	acc := 0

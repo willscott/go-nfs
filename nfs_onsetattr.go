@@ -3,7 +3,9 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"log"
 	"os"
+	"reflect"
 	"syscall"
 
 	"github.com/go-git/go-billy/v5"
@@ -45,13 +47,22 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Read(w.req.Body, t); err != nil {
 			return err
 		}
-		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-			if !t.EqualTimespec(stat.Ctimespec.Unix()) {
-				return &NFSStatusError{NFSStatusNotSync}
+		if info.Sys() != nil {
+			extra := reflect.ValueOf(info.Sys())
+			if extra.Kind() == reflect.Struct {
+				ctimeField := extra.FieldByName("Ctimespec")
+				if ts, ok := ctimeField.Interface().(syscall.Timespec); ok {
+					if !t.EqualTimespec(ts.Unix()) {
+						return &NFSStatusError{NFSStatusNotSync}
+					}
+					goto TIME_GOOD
+				} else {
+					log.Printf("Ctimespec field isn't a timespec")
+				}
 			}
-		} else {
-			return &NFSStatusError{NFSStatusNotSupp}
 		}
+		return &NFSStatusError{NFSStatusNotSupp}
+	TIME_GOOD:
 	}
 
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {

@@ -70,7 +70,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			started = false
 			entities = entities[0 : len(entities)-1]
 		}
-		vHash.Write([]byte(c.Name()))
+		_, _ = vHash.Write([]byte(c.Name()))
 	}
 
 	verif := vHash.Sum([]byte{})[0:8]
@@ -93,34 +93,34 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 
 	if obj.Cookie == 0 {
 		// prefix the special "." and ".." entries.
-		xdr.Write(writer, uint32(1))                                        //next
-		xdr.Write(writer, uint64(binary.BigEndian.Uint64(obj.Handle[0:8]))) //fileID
-		xdr.Write(writer, []byte("."))                                      // name
-		xdr.Write(writer, uint64(1))                                        // cookie
-		xdr.Write(writer, uint32(1))                                        // next
+		_ = xdr.Write(writer, uint32(1))                                        //next
+		_ = xdr.Write(writer, uint64(binary.BigEndian.Uint64(obj.Handle[0:8]))) //fileID
+		_ = xdr.Write(writer, []byte("."))                                      // name
+		_ = xdr.Write(writer, uint64(1))                                        // cookie
+		_ = xdr.Write(writer, uint32(1))                                        // next
 		if len(p) > 0 {
 			ph := userHandle.ToHandle(fs, p[0:len(p)-1])
-			xdr.Write(writer, uint64(binary.BigEndian.Uint64(ph[0:8]))) //fileID
+			_ = xdr.Write(writer, uint64(binary.BigEndian.Uint64(ph[0:8]))) //fileID
 		} else {
-			xdr.Write(writer, uint64(0)) //fileID
+			_ = xdr.Write(writer, uint64(0)) //fileID
 		}
-		xdr.Write(writer, []byte("..")) //name
-		xdr.Write(writer, uint64(2))    // cookie
+		_ = xdr.Write(writer, []byte("..")) //name
+		_ = xdr.Write(writer, uint64(2))    // cookie
 	}
 	if len(entities) > 0 || obj.Cookie == 0 {
-		xdr.Write(writer, uint32(1)) // next
+		_ = xdr.Write(writer, uint32(1)) // next
 	}
 	if len(entities) > 0 {
 		entities[len(entities)-1].Next = 0
 		// the 'yes there is a 1st entity' bool
 	}
 	for _, e := range entities {
-		xdr.Write(writer, e)
+		_ = xdr.Write(writer, e)
 	}
 	if started || len(entities) == 0 {
-		xdr.Write(writer, uint32(1))
+		_ = xdr.Write(writer, uint32(1))
 	} else {
-		xdr.Write(writer, uint32(0))
+		_ = xdr.Write(writer, uint32(0))
 	}
 	// TODO: track writer size at this point to validate maxcount estimation and stop early if needed.
 	return w.Write(writer.Bytes())
