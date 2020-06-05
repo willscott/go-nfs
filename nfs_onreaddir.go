@@ -70,7 +70,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			started = false
 			entities = entities[0 : len(entities)-1]
 		}
-		vHash.Write([]byte(c.Name()))
+		_, _ = vHash.Write([]byte(c.Name()))
 	}
 
 	verif := vHash.Sum([]byte{})[0:8]

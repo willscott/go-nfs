@@ -20,8 +20,12 @@ func main() {
 
 	mem := memfs.New()
 	f, err := mem.Create("hello.txt")
-	f.Write([]byte("hello world"))
-	f.Close()
+	if err != nil {
+		fmt.Printf("Failed to create file: %v\n", err)
+		return
+	}
+	_, _ = f.Write([]byte("hello world"))
+	_ = f.Close()
 
 	handler := nfshelper.NewNullAuthHandler(mem)
 	cacheHelper := nfshelper.NewCachingHandler(handler)

@@ -10,8 +10,8 @@ import (
 
 func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Filesystem) []byte {
 	writer := bytes.NewBuffer([]byte{})
-	xdr.Write(writer, uint32(NFSStatusOk))
-	xdr.Write(writer, handle)
+	_ = xdr.Write(writer, uint32(NFSStatusOk))
+	_ = xdr.Write(writer, handle)
 	WritePostOpAttrs(writer, tryStat(fs, entPath))
 	WritePostOpAttrs(writer, tryStat(fs, dirPath))
 	return writer.Bytes()

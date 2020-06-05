@@ -21,11 +21,13 @@ func TestNFS(t *testing.T) {
 
 	mem := memfs.New()
 	// File needs to exist in the root for memfs to acknowledge the root exists.
-	mem.Create("/test")
+	_, _ = mem.Create("/test")
 
 	handler := helpers.NewNullAuthHandler(mem)
 	cacheHelper := helpers.NewCachingHandler(handler)
-	go nfs.Serve(listener, cacheHelper)
+	go func() {
+		_ = nfs.Serve(listener, cacheHelper)
+	}()
 
 	c, err := rpc.DialTCP(listener.Addr().Network(), nil, listener.Addr().(*net.TCPAddr).String())
 	if err != nil {
@@ -39,7 +41,9 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mounter.Unmount()
+	defer func() {
+		_ = mounter.Unmount()
+	}()
 
 	_, err = target.FSInfo()
 	if err != nil {
