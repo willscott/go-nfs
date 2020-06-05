@@ -1,6 +1,7 @@
 package nfs_test
 
 import (
+	"bytes"
 	"net"
 	"testing"
 
@@ -50,6 +51,7 @@ func TestNFS(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Validate sample file creation
 	_, err = target.Create("/helloworld.txt", 0666)
 	if err != nil {
 		t.Fatal(err)
@@ -60,5 +62,24 @@ func TestNFS(t *testing.T) {
 		if info.Size() != 0 || info.Mode().Perm() != 0666 {
 			t.Fatal("incorrect creation.")
 		}
+	}
+
+	// Validate writing to a file.
+	f, err := target.OpenFile("/helloworld.txt", 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := []byte("hello world")
+	_, err = f.Write(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mf, _ := mem.Open("/helloworld.txt")
+	buf := make([]byte, len(b))
+	if _, err = mf.Read(buf[:]); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf, b) {
+		t.Fatal("written does not match expected")
 	}
 }
