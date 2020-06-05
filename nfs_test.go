@@ -20,6 +20,9 @@ func TestNFS(t *testing.T) {
 	}
 
 	mem := memfs.New()
+	// File needs to exist in the root for memfs to acknowledge the root exists.
+	mem.Create("/test")
+
 	handler := helpers.NewNullAuthHandler(mem)
 	cacheHelper := helpers.NewCachingHandler(handler)
 	go nfs.Serve(listener, cacheHelper)
@@ -32,7 +35,7 @@ func TestNFS(t *testing.T) {
 
 	var mounter nfsc.Mount
 	mounter.Client = c
-	target, err := mounter.Mount("/test", rpc.AuthNull)
+	target, err := mounter.Mount("/", rpc.AuthNull)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,5 +44,17 @@ func TestNFS(t *testing.T) {
 	_, err = target.FSInfo()
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	_, err = target.Create("/helloworld.txt", 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := mem.Stat("/helloworld.txt"); err != nil {
+		t.Fatal(err)
+	} else {
+		if info.Size() != 0 || info.Mode().Perm() != 0666 {
+			t.Fatal("incorrect creation.")
+		}
 	}
 }

@@ -3,6 +3,7 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"log"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
@@ -76,9 +77,11 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	file, err := fs.Create(newFilePath)
 	if err != nil {
+		log.Printf("Error Creating: %v", err)
 		return &NFSStatusError{NFSStatusAccess}
 	}
 	if err := file.Close(); err != nil {
+		log.Printf("Error Creating: %v", err)
 		return &NFSStatusError{NFSStatusAccess}
 	}
 
