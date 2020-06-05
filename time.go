@@ -5,7 +5,7 @@ import (
 )
 
 // FileTime is the NFS wire time format
-// This is equivalent to vmware/go-nfs-client/nfs.NFS3Time
+// This is equivalent to go-nfs-client/nfs.NFS3Time
 type FileTime struct {
 	Seconds  uint32
 	Nseconds uint32

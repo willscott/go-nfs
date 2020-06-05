@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 
-	"github.com/vmware/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 type readDirArgs struct {

@@ -7,5 +7,5 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93
-	github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b
+	github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33
 )

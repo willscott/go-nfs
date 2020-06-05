@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/vmware/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 const (

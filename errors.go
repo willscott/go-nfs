@@ -201,9 +201,12 @@ func (s *StatusErrorWithBody) MarshalBinary() (data []byte, err error) {
 // errFormatterWithBody appends a provided body to errors
 func errFormatterWithBody(body []byte) func(err error) RPCError {
 	return func(err error) RPCError {
-		var nfsErr NFSStatusError
-		if errors.As(err, &nfsErr) {
-			return &StatusErrorWithBody{nfsErr, body[:]}
+		if nerr, ok := err.(*NFSStatusError); ok {
+			return &StatusErrorWithBody{*nerr, body[:]}
+		}
+		var rErr RPCError
+		if errors.As(err, &rErr) {
+			return rErr
 		}
 		return &ResponseCodeSystemError{}
 	}

@@ -1,6 +1,4 @@
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/go-git/go-billy v1.0.0 h1:bXR6Zu3opPSg0R4dDxqaLglY4rxw7ja7wS16qSpOKL4=
-github.com/go-git/go-billy v4.2.0+incompatible h1:Z6QtVXd5tjxUtcODLugkJg4WaZnGg13CD8qB9pr+7q0=
 github.com/go-git/go-billy/v5 v5.0.0 h1:7NQHvd9FVid8VL4qVUMm8XifBK+2xCoZ2lSk0agRrHM=
 github.com/go-git/go-billy/v5 v5.0.0/go.mod h1:pmpqyWchKfYfrkb/UVH4otLvyi/5gJlGI4Hb3ZqZ3W0=
 github.com/google/uuid v1.1.1 h1:Gkbcsh/GbpXz7lPftLA3P6TYMwjCLYm83jiFQZF/3gY=
@@ -15,8 +13,9 @@ github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e h1:fD57ERR4JtEqsWb
 github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e/go.mod h1:zD1mROLANZcx1PVRCS0qkT7pwLkGfwJo4zjcN/Tysno=
 github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 h1:UVArwN/wkKjMVhh2EQGC0tEc1+FqiLlvYXY5mQ2f8Wg=
 github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93/go.mod h1:Nfe4efndBz4TibWycNE+lqyJZiMX4ycx+QKV8Ta0f/o=
-github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b h1:RUrsc0B9xF8iC8WXrva+ULeOwN/X+zqe0FdWcDxPt/M=
-github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b/go.mod h1:psQdhrCc+fimC/8/U+PboPiIMcdmKgRdAtcMnhXhjzI=
+github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33 h1:Wd8wdpRzPXskyHvZLyw7Wc1fp5oCE2mhBCj7bAiibUs=
+github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33/go.mod h1:cOUKSNty+RabZqKhm5yTJT5Vq/Fe83ZRWAJ5Kj8nRes=
+github.com/zema1/go-nfs-client v0.0.0-20200604081958-0cf942f0e0fe/go.mod h1:im3CVJ32XM3+E+2RhY0sa5IVJVQehUrX0oE1wX4xOwU=
 golang.org/x/sys v0.0.0-20200302150141-5c8b2ff67527/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f h1:BLraFXnmrev5lT+xlilqcH8XK9/i0At2xKjWk4p6zsU=
 gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=

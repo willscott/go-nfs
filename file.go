@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5"
-	"github.com/vmware/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 // FileAttribute holds metadata about a filesystem object

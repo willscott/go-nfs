@@ -13,8 +13,8 @@ import (
 	"net"
 
 	xdr2 "github.com/rasky/go-xdr/xdr2"
-	"github.com/vmware/go-nfs-client/nfs/rpc"
-	"github.com/vmware/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 var (

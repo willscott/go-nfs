@@ -1,7 +1,7 @@
 package nfs
 
 import (
-	"github.com/vmware/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/rpc"
 )
 
 // FHSize is the maximum size of a FileHandle
