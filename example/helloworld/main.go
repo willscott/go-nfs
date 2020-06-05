@@ -29,5 +29,5 @@ func main() {
 
 	handler := nfshelper.NewNullAuthHandler(mem)
 	cacheHelper := nfshelper.NewCachingHandler(handler)
-	nfs.Serve(listener, cacheHelper)
+	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
 }

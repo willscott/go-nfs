@@ -49,6 +49,5 @@ func onUMount(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
-	w.writeHeader(ResponseCodeSuccess)
-	return nil
+	return w.writeHeader(ResponseCodeSuccess)
 }
