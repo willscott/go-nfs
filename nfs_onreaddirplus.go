@@ -18,13 +18,14 @@ type readDirPlusArgs struct {
 }
 
 type readDirPlusEntity struct {
-	FileID     uint64
-	Name       []byte
-	Cookie     uint64
-	Attributes *FileAttribute
-	HasHandle  uint32
-	Handle     []byte
-	Next       uint32
+	FileID        uint64
+	Name          []byte
+	Cookie        uint64
+	HasAttributes uint32
+	Attributes    *FileAttribute
+	HasHandle     uint32
+	Handle        []byte
+	Next          uint32
 }
 
 func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
@@ -67,13 +68,14 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			attrs := ToFileAttribute(c)
 			attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
 			entities = append(entities, readDirPlusEntity{
-				FileID:     binary.BigEndian.Uint64(handle[0:8]),
-				Name:       []byte(c.Name()),
-				Cookie:     uint64(i + 3),
-				Attributes: attrs,
-				HasHandle:  1,
-				Handle:     handle,
-				Next:       1,
+				FileID:        binary.BigEndian.Uint64(handle[0:8]),
+				Name:          []byte(c.Name()),
+				Cookie:        uint64(i + 3),
+				HasAttributes: 1,
+				Attributes:    attrs,
+				HasHandle:     1,
+				Handle:        handle,
+				Next:          1,
 			})
 			dirBytes += uint32(len(c.Name()) + 20)
 			maxBytes += 512 // TODO: better estimation.

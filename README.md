@@ -4,11 +4,25 @@ Golang Network File Server
 NFSv3 protocol implementation in pure Golang.
 
 Current Status:
-* Untested
-* Mounts, read-only behavior works
-* Writing/mutations not fully implemented
+* Minimally tested
+* Mounts, read-only and read-write support
 
 Usage
+===
+
+The most interesting demo is currently in `example/osview`. 
+
+Start the server
+`go run ./example/osview .`.
+
+The local folder at `.` will be the initial view in the mount. mutations to metadata or contents
+will be stored purely in memory and not written back to the OS. When run, this
+demo will print the port it is listening on.
+
+The mount can be accessed using a command similar to 
+`mount -o port=<n>,mountport=<n> -t nfs localohst:/mount <mountpoint>`.
+
+API
 ===
 
 The NFS server runs on a `net.Listener` to export a file system to NFS clients.
@@ -34,7 +48,6 @@ handler := nfshelper.NewNullAuthHandler(mem)
 cacheHelper := nfshelper.NewCachingHandler(handler)
 nfs.Serve(listener, cacheHelper)
 ```
-
 
 Notes
 ---

@@ -4,11 +4,26 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 
 	nfs "github.com/willscott/go-nfs"
 	nfshelper "github.com/willscott/go-nfs/helpers"
 )
+
+// ROFS is an intercepter for the filesystem indicating it should
+// be read only. The undelrying billy.Memfs indicates it supports
+// writing, but does not in implement billy.Change to support
+// modification of permissions / modTimes, and as such cannot be
+// used as RW system.
+type ROFS struct {
+	billy.Filesystem
+}
+
+// Capabilities exports the filesystem as readonly
+func (ROFS) Capabilities() billy.Capability {
+	return billy.ReadCapability | billy.SeekCapability
+}
 
 func main() {
 	listener, err := net.Listen("tcp", ":0")
@@ -27,7 +42,7 @@ func main() {
 	_, _ = f.Write([]byte("hello world"))
 	_ = f.Close()
 
-	handler := nfshelper.NewNullAuthHandler(mem)
+	handler := nfshelper.NewNullAuthHandler(ROFS{mem})
 	cacheHelper := nfshelper.NewCachingHandler(handler)
 	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
 }
