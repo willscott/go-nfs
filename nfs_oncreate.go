@@ -88,6 +88,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	fp := userHandle.ToHandle(fs, append(path, file.Name()))
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+		log.Printf("Error applying attributes: %v\n", err)
 		return &NFSStatusError{NFSStatusIO}
 	}
 
