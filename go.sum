@@ -31,6 +31,8 @@ github.com/willscott/memphis v0.0.0-20200810012053-5ec44f899a26 h1:YwD63h5jL9QwW
 github.com/willscott/memphis v0.0.0-20200810012053-5ec44f899a26/go.mod h1:T5hsED2//sdV8tyuNdHl45lnKAVrzKRCd6kxxCV55lc=
 github.com/willscott/memphis v0.0.0-20200912203731-93fad52b5f1f h1:DlDbHkxlFBz1KOx7lCYyVk1OG9xwBR1VVIy1qbx9n/E=
 github.com/willscott/memphis v0.0.0-20200912203731-93fad52b5f1f/go.mod h1:H611mPjoKiBH5jJ79ogSj3cBlRBB7VGZxaE7ZmioeqE=
+github.com/willscott/memphis v0.0.0-20200912205913-768fef98189f h1:b+G0cnCRLaSCGLPV/mXpDaqVrPdOIKx0y59wENVFUBI=
+github.com/willscott/memphis v0.0.0-20200912205913-768fef98189f/go.mod h1:wQ73uP8H2umTsqMbo021y58pWHnrS9BZEkdoS0gDnHg=
 github.com/zema1/go-nfs-client v0.0.0-20200604081958-0cf942f0e0fe/go.mod h1:im3CVJ32XM3+E+2RhY0sa5IVJVQehUrX0oE1wX4xOwU=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/net v0.0.0-20190311183353-d8887717615a/go.mod h1:t9HGtf8HONx5eT2rtn7q6eTqICYqUVnKs3thJo3Qplg=
