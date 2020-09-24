@@ -5,27 +5,29 @@ import (
 	"net"
 	"os"
 
-	"github.com/willscott/memphis"
-
+  osfs "github.com/go-git/go-billy/v5/osfs"
 	nfs "github.com/willscott/go-nfs"
 	nfshelper "github.com/willscott/go-nfs/helpers"
 )
 
 func main() {
+  	port := ""
 	if len(os.Args) < 2 {
-		fmt.Printf("Usage: aclunfs /path/to/folder\n")
+		fmt.Printf("Usage: osnfs </path/to/folder> [port]\n")
 		return
-	}
-	listener, err := net.Listen("tcp", ":22049")
+	} else if len(os.Args) == 3 {
+    		port = os.Args[2]
+  	}
+  
+	listener, err := net.Listen("tcp", ":" + port)
 	if err != nil {
 		fmt.Printf("Failed to listen: %v\n", err)
 		return
 	}
-	fmt.Printf("NFS server running at %s\n", listener.Addr())
+	fmt.Printf("osnfs server running at %s\n", listener.Addr())
 
-	fs := memphis.FromOS(os.Args[1])
-	bfs := fs.AsBillyFS(0, 0)
-
+  	bfs := osfs.New( os.Args[1] )
+  
 	handler := nfshelper.NewNullAuthHandler(bfs)
 	cacheHelper := nfshelper.NewCachingHandler(handler)
 	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
