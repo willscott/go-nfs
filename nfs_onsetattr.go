@@ -44,7 +44,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	} else if guard != 0 {
 		// read the ctime.
 		t := FileTime{}
-		if err := xdr.Read(w.req.Body, t); err != nil {
+		if err := xdr.Read(w.req.Body, &t); err != nil {
 			return err
 		}
 		if info.Sys() != nil {

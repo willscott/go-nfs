@@ -37,9 +37,10 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	} else if how == createModeExclusive {
 		// read createverf3
 		var verf [8]byte
-		if err := xdr.Read(w.req.Body, verf); err != nil {
+		if err := xdr.Read(w.req.Body, &verf); err != nil {
 			return err
 		}
+		log.Printf("failing create to indicate lack of support for 'exclusive' mode.")
 		// TODO: support 'exclusive' mode.
 		return &NFSStatusError{NFSStatusNotSupp}
 	} else {

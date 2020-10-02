@@ -26,7 +26,7 @@ jobs:
       run: go get -v -t -d ./...
 
     - name: Build
-      run: go build -v .
+      run: go build -v ./...
 
     - name: Run golangci-lint
       uses: actions-contrib/golangci-lint@v1
