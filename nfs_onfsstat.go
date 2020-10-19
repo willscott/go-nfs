@@ -11,12 +11,11 @@ import (
 func onFSStat(ctx context.Context, w *response, userHandle Handler) error {
 	roothandle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 	fs, path, err := userHandle.FromHandle(roothandle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 
 	defaults := FSStat{
@@ -35,17 +34,25 @@ func onFSStat(ctx context.Context, w *response, userHandle Handler) error {
 
 	err = userHandle.FSStat(ctx, fs, &defaults)
 	if err != nil {
-		return err
+		if _, ok := err.(*NFSStatusError); ok {
+			return err
+		}
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	WritePostOpAttrs(writer, tryStat(fs, path))
+	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 
 	if err := xdr.Write(writer, defaults); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	return w.Write(writer.Bytes())
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }

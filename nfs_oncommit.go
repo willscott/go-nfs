@@ -3,6 +3,7 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"os"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
@@ -13,17 +14,16 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = wccDataErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 	// The conn will drain the unread offset and count arguments.
 
 	fs, path, err := userHandle.FromHandle(handle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusError{NFSStatusServerFault}
+		return &NFSStatusError{NFSStatusServerFault, os.ErrPermission}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -33,13 +33,18 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 
 	// no pre-op cache data.
 	if err := xdr.Write(writer, uint32(0)); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	WritePostOpAttrs(writer, tryStat(fs, path))
+	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 	// write the 8 bytes of write verification.
 	if err := xdr.Write(writer, w.Server.ID); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	return w.Write(writer.Bytes())
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }

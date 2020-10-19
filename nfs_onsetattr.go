@@ -16,36 +16,34 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = wccDataErrorFormatter
 	handle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 
 	fs, path, err := userHandle.FromHandle(handle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 	attrs, err := ReadSetFileAttributes(w.req.Body)
 	if err != nil {
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 
 	info, err := fs.Lstat(fs.Join(path...))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt}
+			return &NFSStatusError{NFSStatusNoEnt, err}
 		}
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
 	// see if there's a "guard"
 	if guard, err := xdr.ReadUint32(w.req.Body); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	} else if guard != 0 {
 		// read the ctime.
 		t := FileTime{}
 		if err := xdr.Read(w.req.Body, &t); err != nil {
-			return err
+			return &NFSStatusError{NFSStatusInval, err}
 		}
 		if info.Sys() != nil {
 			extra := reflect.ValueOf(info.Sys())
@@ -53,7 +51,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 				ctimeField := extra.FieldByName("Ctimespec")
 				if ts, ok := ctimeField.Interface().(syscall.Timespec); ok {
 					if !t.EqualTimespec(ts.Unix()) {
-						return &NFSStatusError{NFSStatusNotSync}
+						return &NFSStatusError{NFSStatusNotSync, nil}
 					}
 					goto TIME_GOOD
 				} else {
@@ -61,16 +59,17 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 				}
 			}
 		}
-		return &NFSStatusError{NFSStatusNotSupp}
+		return &NFSStatusError{NFSStatusNotSupp, nil}
 	TIME_GOOD:
 	}
 
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusError{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, fs.Join(path...)); err != nil {
+		// Already an nfsstatuserror
 		return err
 	}
 
@@ -78,9 +77,14 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	WriteWcc(writer, preAttr, tryStat(fs, path))
+	if err := WriteWcc(writer, preAttr, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 
-	return w.Write(writer.Bytes())
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }

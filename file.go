@@ -136,29 +136,49 @@ func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
 }
 
 // WriteWcc writes the `wcc_data` representation of an object.
-func WriteWcc(writer io.Writer, pre *FileCacheAttribute, post *FileAttribute) {
+func WriteWcc(writer io.Writer, pre *FileCacheAttribute, post *FileAttribute) error {
 	if pre == nil {
-		_ = xdr.Write(writer, uint32(0))
+		if err := xdr.Write(writer, uint32(0)); err != nil {
+			return err
+		}
 	} else {
-		_ = xdr.Write(writer, uint32(1))
-		_ = xdr.Write(writer, *pre)
+		if err := xdr.Write(writer, uint32(1)); err != nil {
+			return err
+		}
+		if err := xdr.Write(writer, *pre); err != nil {
+			return err
+		}
 	}
 	if post == nil {
-		_ = xdr.Write(writer, uint32(0))
+		if err := xdr.Write(writer, uint32(0)); err != nil {
+			return err
+		}
 	} else {
-		_ = xdr.Write(writer, uint32(1))
-		_ = xdr.Write(writer, *post)
+		if err := xdr.Write(writer, uint32(1)); err != nil {
+			return err
+		}
+		if err := xdr.Write(writer, *post); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // WritePostOpAttrs writes the `post_op_attr` representation of a files attributes
-func WritePostOpAttrs(writer io.Writer, post *FileAttribute) {
+func WritePostOpAttrs(writer io.Writer, post *FileAttribute) error {
 	if post == nil {
-		_ = xdr.Write(writer, uint32(0))
+		if err := xdr.Write(writer, uint32(0)); err != nil {
+			return err
+		}
 	} else {
-		_ = xdr.Write(writer, uint32(1))
-		_ = xdr.Write(writer, *post)
+		if err := xdr.Write(writer, uint32(1)); err != nil {
+			return err
+		}
+		if err := xdr.Write(writer, *post); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // SetFileAttributes represents a command to update some metadata
@@ -185,7 +205,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		mode := os.FileMode(*s.SetMode) & os.ModePerm
 		if mode != curr.Mode().Perm() {
 			if changer == nil {
-				return &NFSStatusError{NFSStatusNotSupp}
+				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Chmod(file, mode); err != nil {
 				return err
@@ -203,7 +223,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		}
 		if euid != curr.UID || egid != curr.GID {
 			if changer == nil {
-				return &NFSStatusError{NFSStatusNotSupp}
+				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Lchown(file, int(euid), int(egid)); err != nil {
 				return err
@@ -212,7 +232,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 	}
 	if s.SetSize != nil {
 		if curr.Mode()&os.ModeSymlink != 0 {
-			return &NFSStatusError{NFSStatusNotSupp}
+			return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 		}
 		fp, err := fs.Open(file)
 		if err != nil {
@@ -237,7 +257,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		}
 		if atime != curr.Atime.Native() || mtime != curr.Mtime.Native() {
 			if changer == nil {
-				return &NFSStatusError{NFSStatusNotSupp}
+				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Chtimes(file, *atime, *mtime); err != nil {
 				return err
