@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -34,18 +35,19 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	var obj nfsReadArgs
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 	fs, path, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 
 	fh, err := fs.Open(fs.Join(path...))
 	if err != nil {
-		// err
-		return &NFSStatusError{NFSStatusAccess}
+		if os.IsNotExist(err) {
+			return &NFSStatusError{NFSStatusNoEnt, err}
+		}
+		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
 	resp := nfsReadResponse{}
@@ -53,7 +55,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	if obj.Count > CheckRead {
 		info, err := fs.Stat(fs.Join(path...))
 		if err != nil {
-			return &NFSStatusError{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess, err}
 		}
 		if info.Size()-int64(obj.Offset) < int64(obj.Count) {
 			obj.Count = uint32(uint64(info.Size()) - obj.Offset)
@@ -66,7 +68,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	// todo: multiple reads if size isn't full
 	cnt, err := fh.ReadAt(resp.Data, int64(obj.Offset))
 	if err != nil && !errors.Is(err, io.EOF) {
-		return &NFSStatusError{NFSStatusIO}
+		return &NFSStatusError{NFSStatusIO, err}
 	}
 	resp.Count = uint32(cnt)
 	resp.Data = resp.Data[:resp.Count]
@@ -76,12 +78,17 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	WritePostOpAttrs(writer, tryStat(fs, path))
+	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 
 	if err := xdr.Write(writer, resp); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	return w.Write(writer.Bytes())
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }

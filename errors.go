@@ -167,6 +167,7 @@ func basicErrorFormatter(err error) RPCError {
 // NFSStatusError represents an error at the NFS level.
 type NFSStatusError struct {
 	NFSStatus
+	WrappedErr error
 }
 
 // Error is The wrapped error
@@ -184,6 +185,11 @@ func (s *NFSStatusError) MarshalBinary() (data []byte, err error) {
 	var resp [4]byte
 	binary.BigEndian.PutUint32(resp[0:4], uint32(s.NFSStatus))
 	return resp[:], nil
+}
+
+// Unwrap unpacks wrapped errors
+func (s *NFSStatusError) Unwrap() error {
+	return s.WrappedErr
 }
 
 // StatusErrorWithBody is an NFS error with a payload.

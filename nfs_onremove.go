@@ -12,33 +12,34 @@ import (
 func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = wccDataErrorFormatter
 	obj := DirOpArg{}
-	err := xdr.Read(w.req.Body, &obj)
-	if err != nil {
-		// TODO: wrap
-		return err
+	if err := xdr.Read(w.req.Body, &obj); err != nil {
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 	fs, path, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
-		return &NFSStatusError{NFSStatusROFS}
+		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 
 	if len(string(obj.Filename)) > PathNameMax {
-		return &NFSStatusError{NFSStatusNameTooLong}
+		return &NFSStatusError{NFSStatusNameTooLong, nil}
 	}
 
 	dirInfo, err := fs.Stat(fs.Join(path...))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt}
+			return &NFSStatusError{NFSStatusNoEnt, err}
 		}
-		return &NFSStatusError{NFSStatusIO}
+		if os.IsPermission(err) {
+			return &NFSStatusError{NFSStatusAccess, err}
+		}
+		return &NFSStatusError{NFSStatusIO, err}
 	}
 	if !dirInfo.IsDir() {
-		return &NFSStatusError{NFSStatusNotDir}
+		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
 	preCacheData := ToFileAttribute(dirInfo).AsCache()
 
@@ -47,20 +48,25 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 	err = fs.Remove(toDelete)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &NFSStatusError{NFSStatusNoEnt}
+			return &NFSStatusError{NFSStatusNoEnt, err}
 		}
 		if os.IsPermission(err) {
-			return &NFSStatusError{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess, err}
 		}
-		return &NFSStatusError{NFSStatusIO}
+		return &NFSStatusError{NFSStatusIO, err}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
-		return err
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	WriteWcc(writer, preCacheData, tryStat(fs, path))
+	if err := WriteWcc(writer, preCacheData, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 
-	return w.Write(writer.Bytes())
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }

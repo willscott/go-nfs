@@ -4,18 +4,27 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
-func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Filesystem) []byte {
+func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Filesystem) ([]byte, error) {
 	writer := bytes.NewBuffer([]byte{})
-	_ = xdr.Write(writer, uint32(NFSStatusOk))
-	_ = xdr.Write(writer, handle)
-	WritePostOpAttrs(writer, tryStat(fs, entPath))
-	WritePostOpAttrs(writer, tryStat(fs, dirPath))
-	return writer.Bytes()
+	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
+		return nil, err
+	}
+	if err := xdr.Write(writer, handle); err != nil {
+		return nil, err
+	}
+	if err := WritePostOpAttrs(writer, tryStat(fs, entPath)); err != nil {
+		return nil, err
+	}
+	if err := WritePostOpAttrs(writer, tryStat(fs, dirPath)); err != nil {
+		return nil, err
+	}
+	return writer.Bytes(), nil
 }
 
 func onLookup(ctx context.Context, w *response, userHandle Handler) error {
@@ -23,30 +32,43 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	obj := DirOpArg{}
 	err := xdr.Read(w.req.Body, &obj)
 	if err != nil {
-		// TODO: wrap
-		return err
+		return &NFSStatusError{NFSStatusInval, err}
 	}
 
 	fs, p, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
-		return &NFSStatusError{NFSStatusStale}
+		return &NFSStatusError{NFSStatusStale, err}
 	}
 	contents, err := fs.ReadDir(fs.Join(p...))
 	if err != nil {
-		return &NFSStatusError{NFSStatusNotDir}
+		return &NFSStatusError{NFSStatusNotDir, err}
 	}
 
 	// Special cases for "." and ".."
 	if bytes.Equal(obj.Filename, []byte(".")) {
-		return w.Write(lookupSuccessResponse(obj.Handle, p, p, fs))
+		resp, err := lookupSuccessResponse(obj.Handle, p, p, fs)
+		if err != nil {
+			return &NFSStatusError{NFSStatusServerFault, err}
+		}
+		if err := w.Write(resp); err != nil {
+			return &NFSStatusError{NFSStatusServerFault, err}
+		}
+		return nil
 	}
 	if bytes.Equal(obj.Filename, []byte("..")) {
 		if len(p) == 0 {
-			return &NFSStatusError{NFSStatusAccess}
+			return &NFSStatusError{NFSStatusAccess, os.ErrPermission}
 		}
 		pPath := p[0 : len(p)-1]
 		pHandle := userHandle.ToHandle(fs, pPath)
-		return w.Write(lookupSuccessResponse(pHandle, pPath, p, fs))
+		resp, err := lookupSuccessResponse(pHandle, pPath, p, fs)
+		if err != nil {
+			return &NFSStatusError{NFSStatusServerFault, err}
+		}
+		if err := w.Write(resp); err != nil {
+			return &NFSStatusError{NFSStatusServerFault, err}
+		}
+		return nil
 	}
 
 	// TODO: use sorting rather than linear
@@ -54,10 +76,17 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		if bytes.Equal([]byte(f.Name()), obj.Filename) {
 			newPath := append(p, f.Name())
 			newHandle := userHandle.ToHandle(fs, newPath)
-			return w.Write(lookupSuccessResponse(newHandle, newPath, p, fs))
+			resp, err := lookupSuccessResponse(newHandle, newPath, p, fs)
+			if err != nil {
+				return &NFSStatusError{NFSStatusServerFault, err}
+			}
+			if err := w.Write(resp); err != nil {
+				return &NFSStatusError{NFSStatusServerFault, err}
+			}
+			return nil
 		}
 	}
 
 	fmt.Printf("No file for lookup of %v\n", string(obj.Filename))
-	return &NFSStatusError{NFSStatusNoEnt}
+	return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 }
