@@ -26,7 +26,9 @@ func onAccess(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	WritePostOpAttrs(writer, tryStat(fs, path))
+	if err := WritePostOpAttrs(writer, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 
 	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
 		mask = mask & (1 | 2 | 0x20)
