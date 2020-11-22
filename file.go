@@ -4,11 +4,11 @@ import (
 	"io"
 	"log"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/file"
 )
 
 // FileAttribute holds metadata about a filesystem object
@@ -111,10 +111,10 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 	// The number of hard links to the file.
 	f.Nlink = 1
 
-	if s, ok := info.Sys().(*syscall.Stat_t); ok {
-		f.Nlink = uint32(s.Nlink)
-		f.UID = s.Uid
-		f.GID = s.Gid
+	if a := file.GetInfo(info); a != nil {
+		f.Nlink = a.Nlink
+		f.UID = a.UID
+		f.GID = a.GID
 	}
 
 	f.Filesize = uint64(info.Size())
