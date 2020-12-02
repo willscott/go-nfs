@@ -20,7 +20,11 @@ will be stored purely in memory and not written back to the OS. When run, this
 demo will print the port it is listening on.
 
 The mount can be accessed using a command similar to 
-`mount -o port=<n>,mountport=<n> -t nfs localohst:/mount <mountpoint>`.
+`mount -o port=<n>,mountport=<n> -t nfs localhost:/mount <mountpoint>` (For Mac users)
+
+or
+
+`mount -o port=<n>,mountport=<n>,nfsvers=3,noacl,tcp -t nfs localhost:/mount <mountpoint>` (For Linux users)
 
 API
 ===
