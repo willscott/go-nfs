@@ -3,6 +3,7 @@ package nfs
 import (
 	"io"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -234,9 +235,12 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if curr.Mode()&os.ModeSymlink != 0 {
 			return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 		}
-		fp, err := fs.Open(file)
+		fp, err := fs.OpenFile(file, os.O_WRONLY|os.O_EXCL, 0)
 		if err != nil {
 			return err
+		}
+		if *s.SetSize > math.MaxInt64 {
+			return &NFSStatusError{NFSStatusInval, os.ErrInvalid}
 		}
 		if err := fp.Truncate(int64(*s.SetSize)); err != nil {
 			return err
