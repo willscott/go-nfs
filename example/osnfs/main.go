@@ -30,6 +30,6 @@ func main() {
 	bfsPlusChange := NewChangeOSFS(bfs)
 
 	handler := nfshelper.NewNullAuthHandler(bfsPlusChange)
-	cacheHelper := nfshelper.NewCachingHandler(handler)
+	cacheHelper := nfshelper.NewCachingHandler(handler, 1024)
 	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
 }

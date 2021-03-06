@@ -71,7 +71,8 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			maxBytes += 512 // TODO: better estimation.
 		} else if uint64(i) == obj.Cookie {
 			started = true
-		} else if maxBytes > obj.Count {
+		}
+		if started && (maxBytes > obj.Count || len(entities) > userHandle.HandleLimit()/2) {
 			started = false
 			entities = entities[0 : len(entities)-1]
 		}
