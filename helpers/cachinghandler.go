@@ -9,11 +9,12 @@ import (
 )
 
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
-func NewCachingHandler(h nfs.Handler) nfs.Handler {
-	cache, _ := lru.New(1024)
+func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
+	cache, _ := lru.New(limit)
 	return &CachingHandler{
 		Handler:       h,
 		activeHandles: cache,
+		cacheLimit:    limit,
 	}
 }
 
@@ -21,6 +22,7 @@ func NewCachingHandler(h nfs.Handler) nfs.Handler {
 type CachingHandler struct {
 	nfs.Handler
 	activeHandles *lru.Cache
+	cacheLimit    int
 }
 
 type entry struct {
@@ -52,4 +54,9 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 		}
 	}
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
+}
+
+// HandleLimit exports how many file handles can be safely stored by this cache.
+func (c *CachingHandler) HandleLimit() int {
+	return c.cacheLimit
 }

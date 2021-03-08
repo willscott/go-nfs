@@ -43,6 +43,6 @@ func main() {
 	_ = f.Close()
 
 	handler := nfshelper.NewNullAuthHandler(ROFS{mem})
-	cacheHelper := nfshelper.NewCachingHandler(handler)
+	cacheHelper := nfshelper.NewCachingHandler(handler, 1024)
 	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
 }

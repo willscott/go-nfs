@@ -48,3 +48,8 @@ func (h *NullAuthHandler) ToHandle(f billy.Filesystem, s []string) []byte {
 func (h *NullAuthHandler) FromHandle([]byte) (billy.Filesystem, []string, error) {
 	return nil, []string{}, nil
 }
+
+// HandleLImit handled by cachingHandler
+func (h *NullAuthHandler) HandleLimit() int {
+	return -1
+}
