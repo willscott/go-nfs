@@ -1,6 +1,7 @@
 package nfs
 
 import (
+	"errors"
 	"io"
 	"log"
 	"math"
@@ -197,7 +198,11 @@ type SetFileAttributes struct {
 // provided file.
 func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
 	curOS, err := fs.Lstat(file)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
+		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
+	} else if errors.Is(err, os.ErrPermission) {
+		return &NFSStatusError{NFSStatusAccess, os.ErrPermission}
+	} else if err != nil {
 		return nil
 	}
 	curr := ToFileAttribute(curOS)
@@ -209,6 +214,9 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Chmod(file, mode); err != nil {
+				if errors.Is(err, os.ErrPermission) {
+					return &NFSStatusError{NFSStatusAccess, os.ErrPermission}
+				}
 				return err
 			}
 		}
@@ -227,6 +235,9 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Lchown(file, int(euid), int(egid)); err != nil {
+				if errors.Is(err, os.ErrPermission) {
+					return &NFSStatusError{NFSStatusAccess, os.ErrPermission}
+				}
 				return err
 			}
 		}
@@ -236,7 +247,9 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 			return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 		}
 		fp, err := fs.OpenFile(file, os.O_WRONLY|os.O_EXCL, 0)
-		if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return &NFSStatusError{NFSStatusAccess, err}
+		} else if err != nil {
 			return err
 		}
 		if *s.SetSize > math.MaxInt64 {
@@ -264,6 +277,9 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 				return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 			}
 			if err := changer.Chtimes(file, *atime, *mtime); err != nil {
+				if errors.Is(err, os.ErrPermission) {
+					return &NFSStatusError{NFSStatusAccess, err}
+				}
 				return err
 			}
 		}
