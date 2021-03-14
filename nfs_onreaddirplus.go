@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -45,6 +46,10 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
 
+	sort.Slice(contents, func(i, j int) bool {
+		return contents[i].Name() < contents[j].Name()
+	})
+
 	if obj.DirCount < 1024 || obj.MaxCount < 4096 {
 		return &NFSStatusError{NFSStatusTooSmall, nil}
 	}
@@ -54,6 +59,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
+	everStarted := started
 	//calculate the cookieverifier for this read-dir exercise.
 	//Note: this is an inefficient way to do this for large directories where
 	//paging actually occurs. however, the billy interface doesn't expose the
@@ -79,6 +85,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			maxBytes += 512 // TODO: better estimation.
 		} else if uint64(i) == obj.Cookie {
 			started = true
+			everStarted = true
 		}
 		if started && (dirBytes > obj.DirCount || maxBytes > obj.MaxCount || len(entities) > userHandle.HandleLimit()/2) {
 			started = false
@@ -91,7 +98,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 
 	verif := vHash.Sum([]byte{})[0:8]
 
-	if obj.Cookie != 0 && binary.BigEndian.Uint64(verif) != obj.CookieVerif {
+	if obj.Cookie != 0 && (binary.BigEndian.Uint64(verif) != obj.CookieVerif || !everStarted) {
 		return &NFSStatusError{NFSStatusBadCookie, nil}
 	}
 
@@ -169,11 +176,11 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 	}
-	more := uint32(0)
-	if started || len(entities) == 0 {
-		more = 1
+	eof := uint32(1)
+	if !started {
+		eof = 0
 	}
-	if err := xdr.Write(writer, more); err != nil {
+	if err := xdr.Write(writer, eof); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	// TODO: track writer size at this point to validate maxcount estimation and stop early if needed.
