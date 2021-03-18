@@ -12,11 +12,15 @@ import (
 )
 
 func main() {
+	port := ""
 	if len(os.Args) < 2 {
-		fmt.Printf("Usage: osview /path/to/folder\n")
+		fmt.Printf("Usage: osview </path/to/folder> [port]\n")
 		return
+	} else if len(os.Args) == 3 {
+		port = os.Args[2]
 	}
-	listener, err := net.Listen("tcp", ":0")
+
+	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Printf("Failed to listen: %v\n", err)
 		return

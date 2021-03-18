@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -46,6 +47,10 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
 
+	sort.Slice(contents, func(i, j int) bool {
+		return contents[i].Name() < contents[j].Name()
+	})
+
 	if obj.Count < 1024 {
 		return &NFSStatusError{NFSStatusTooSmall, io.ErrShortBuffer}
 	}
@@ -54,6 +59,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
+	everStarted := started
 	//calculate the cookieverifier for this read-dir exercise.
 	//Note: this is an inefficient way to do this for large directories where
 	//paging actually occurs. however, the billy interface doesn't expose the
@@ -71,6 +77,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			maxBytes += 512 // TODO: better estimation.
 		} else if uint64(i) == obj.Cookie {
 			started = true
+			everStarted = true
 		}
 		if started && (maxBytes > obj.Count || len(entities) > userHandle.HandleLimit()/2) {
 			started = false
@@ -83,7 +90,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 
 	verif := vHash.Sum([]byte{})[0:8]
 
-	if obj.Cookie != 0 && binary.BigEndian.Uint64(verif) != obj.CookieVerif {
+	if obj.Cookie != 0 && (binary.BigEndian.Uint64(verif) != obj.CookieVerif || !everStarted) {
 		return &NFSStatusError{NFSStatusBadCookie, os.ErrInvalid}
 	}
 
