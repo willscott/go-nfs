@@ -2,7 +2,10 @@ package nfs_test
 
 import (
 	"bytes"
+	"github.com/go-git/go-billy/v5"
+	"io/ioutil"
 	"net"
+	"os"
 	"testing"
 
 	nfs "github.com/willscott/go-nfs"
@@ -13,7 +16,7 @@ import (
 	rpc "github.com/willscott/go-nfs-client/nfs/rpc"
 )
 
-func TestNFS(t *testing.T) {
+func testNFS(t *testing.T, handlerCreator func(fs billy.Filesystem) nfs.Handler) {
 	// make an empty in-memory server.
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -24,10 +27,9 @@ func TestNFS(t *testing.T) {
 	// File needs to exist in the root for memfs to acknowledge the root exists.
 	_, _ = mem.Create("/test")
 
-	handler := helpers.NewNullAuthHandler(mem)
-	cacheHelper := helpers.NewCachingHandler(handler, 1024)
+	handler := handlerCreator(mem)
 	go func() {
-		_ = nfs.Serve(listener, cacheHelper)
+		_ = nfs.Serve(listener, handler)
 	}()
 
 	c, err := rpc.DialTCP(listener.Addr().Network(), nil, listener.Addr().(*net.TCPAddr).String())
@@ -82,4 +84,29 @@ func TestNFS(t *testing.T) {
 	if !bytes.Equal(buf, b) {
 		t.Fatal("written does not match expected")
 	}
+}
+
+func TestNFS(t *testing.T) {
+	testNFS(t, func(fs billy.Filesystem) nfs.Handler {
+		nullAuthHandler := helpers.NewNullAuthHandler(fs)
+		return helpers.NewCachingHandler(nullAuthHandler, 1024)
+	})
+}
+
+func TestNFSPersistent(t *testing.T) {
+	dataDirPath, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatal("failed to create temp dir")
+	}
+	os.MkdirAll(dataDirPath, 0777)
+	defer os.RemoveAll(dataDirPath)
+
+	testNFS(t, func(fs billy.Filesystem) nfs.Handler {
+		nullAuthHandler := helpers.NewNullAuthHandler(fs)
+		handler, err := helpers.NewPersistentHandler(nullAuthHandler, fs, dataDirPath, nil)
+		if err != nil {
+			t.Fatal("failed to create NewPersistentHandler")
+		}
+		return handler
+	})
 }
