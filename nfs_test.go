@@ -105,7 +105,7 @@ func TestNFSPersistent(t *testing.T) {
 		nullAuthHandler := helpers.NewNullAuthHandler(fs)
 		handler, err := helpers.NewPersistentHandler(nullAuthHandler, fs, dataDirPath, nil)
 		if err != nil {
-			t.Fatal("failed to create NewPersistentHandler")
+			t.Fatal("failed to create persistenthandler")
 		}
 		return handler
 	})
