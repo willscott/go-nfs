@@ -67,15 +67,16 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	vHash := sha256.New()
 
 	for i, c := range contents {
+		actualI := i + 2
 		if started {
 			entities = append(entities, readDirEntity{
 				FileID: 1337, //todo: does this matter?
 				Name:   []byte(c.Name()),
-				Cookie: uint64(i + 3),
+				Cookie: uint64(actualI),
 				Next:   1,
 			})
 			maxBytes += 512 // TODO: better estimation.
-		} else if uint64(i) == obj.Cookie {
+		} else if uint64(actualI) == obj.Cookie {
 			started = true
 			everStarted = true
 		}
@@ -119,7 +120,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Write(writer, []byte(".")); err != nil { // name
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		if err := xdr.Write(writer, uint64(1)); err != nil { // cookie
+		if err := xdr.Write(writer, uint64(0)); err != nil { // cookie
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 		if err := xdr.Write(writer, uint32(1)); err != nil { // next
@@ -138,7 +139,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Write(writer, []byte("..")); err != nil { //name
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		if err := xdr.Write(writer, uint64(2)); err != nil { // cookie
+		if err := xdr.Write(writer, uint64(1)); err != nil { // cookie
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 	}
