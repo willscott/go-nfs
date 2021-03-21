@@ -98,8 +98,16 @@ func TestNFSPersistent(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create temp dir")
 	}
-	os.MkdirAll(dataDirPath, 0777)
-	defer os.RemoveAll(dataDirPath)
+	err = os.MkdirAll(dataDirPath, 0777)
+	if err != nil {
+		t.Fatalf("failed to create temp dir at %v", dataDirPath)
+	}
+	defer func() {
+		err := os.RemoveAll(dataDirPath)
+		if err != nil {
+			t.Fatalf("failed to clean up temp dir at %v", dataDirPath)
+		}
+	}()
 
 	testNFS(t, func(fs billy.Filesystem) nfs.Handler {
 		nullAuthHandler := helpers.NewNullAuthHandler(fs)
