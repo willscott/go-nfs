@@ -67,6 +67,8 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	vHash := sha256.New()
 
 	for i, c := range contents {
+		// index of contents doesn't include '.' and '..'
+		actualI := i + 2
 		if started {
 			handle := userHandle.ToHandle(fs, append(p, c.Name()))
 			attrs := ToFileAttribute(c)
@@ -74,7 +76,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			entities = append(entities, readDirPlusEntity{
 				FileID:        binary.BigEndian.Uint64(handle[0:8]),
 				Name:          []byte(c.Name()),
-				Cookie:        uint64(i + 3),
+				Cookie:        uint64(actualI),
 				HasAttributes: 1,
 				Attributes:    attrs,
 				HasHandle:     1,
@@ -83,7 +85,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			})
 			dirBytes += uint32(len(c.Name()) + 20)
 			maxBytes += 512 // TODO: better estimation.
-		} else if uint64(i) == obj.Cookie {
+		} else if uint64(actualI) == obj.Cookie {
 			started = true
 			everStarted = true
 		}
@@ -127,7 +129,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Write(writer, []byte(".")); err != nil { // name
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		if err := xdr.Write(writer, uint64(1)); err != nil { // cookie
+		if err := xdr.Write(writer, uint64(0)); err != nil { // cookie
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 		if err := xdr.Write(writer, uint32(0)); err != nil { // hasAttribute
@@ -152,7 +154,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Write(writer, []byte("..")); err != nil { //name
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		if err := xdr.Write(writer, uint64(2)); err != nil { // cookie
+		if err := xdr.Write(writer, uint64(1)); err != nil { // cookie
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 		if err := xdr.Write(writer, uint32(0)); err != nil { // hasAttribute

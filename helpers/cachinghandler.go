@@ -49,6 +49,13 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 
 	if cache, ok := c.activeHandles.Get(id); ok {
 		f, ok := cache.(entry)
+		for _, k := range c.activeHandles.Keys() {
+			e, _ := c.activeHandles.Peek(k)
+			candidate := e.(entry)
+			if hasPrefix(f.p, candidate.p) {
+				_, _ = c.activeHandles.Get(k)
+			}
+		}
 		if ok {
 			return f.f, f.p, nil
 		}
@@ -59,4 +66,16 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 // HandleLimit exports how many file handles can be safely stored by this cache.
 func (c *CachingHandler) HandleLimit() int {
 	return c.cacheLimit
+}
+
+func hasPrefix(path, prefix []string) bool {
+	if len(prefix) > len(path) {
+		return false
+	}
+	for i, e := range prefix {
+		if path[i] != e {
+			return false
+		}
+	}
+	return true
 }
