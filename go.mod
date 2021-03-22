@@ -3,6 +3,7 @@ module github.com/willscott/go-nfs
 go 1.13
 
 require (
+	github.com/dgraph-io/badger v1.6.2
 	github.com/go-git/go-billy/v5 v5.0.0
 	github.com/google/uuid v1.2.0
 	github.com/hashicorp/golang-lru v0.5.4
