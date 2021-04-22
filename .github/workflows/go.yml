@@ -29,11 +29,7 @@ jobs:
       run: go build -v ./...
 
     - name: Run golangci-lint
-      uses: actions-contrib/golangci-lint@v1
-      env:
-        GOROOT: ""
-      with:
-        args: "run"
+      uses: golangci/golangci-lint-action@v2
 
     - name: Test
       run: go test -v .
