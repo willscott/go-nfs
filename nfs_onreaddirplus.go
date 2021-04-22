@@ -29,6 +29,13 @@ type readDirPlusEntity struct {
 	Next          uint32
 }
 
+func joinPath(parent []string, elements ...string) []string {
+	joinedPath := make([]string, 0, len(parent)+len(elements))
+	joinedPath = append(joinedPath, parent...)
+	joinedPath = append(joinedPath, elements...)
+	return joinedPath
+}
+
 func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = opAttrErrorFormatter
 	obj := readDirPlusArgs{}
@@ -70,7 +77,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		// index of contents doesn't include '.' and '..'
 		actualI := i + 2
 		if started {
-			handle := userHandle.ToHandle(fs, append(p, c.Name()))
+			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
 			attrs := ToFileAttribute(c)
 			attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
 			entities = append(entities, readDirPlusEntity{
