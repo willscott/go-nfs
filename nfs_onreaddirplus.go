@@ -170,9 +170,9 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Write(writer, uint32(0)); err != nil { // hasHandle
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-	}
-	if len(entities) > 0 || obj.Cookie == 0 {
-		if err := xdr.Write(writer, uint32(1)); err != nil { // next
+		next := 1
+		if len(entities) == 0 { next = 0 }
+		if err := xdr.Write(writer, uint32(next)); err != nil { // next
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 	}
