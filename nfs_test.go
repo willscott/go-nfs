@@ -2,7 +2,10 @@ package nfs_test
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"reflect"
+	"sort"
 	"testing"
 
 	nfs "github.com/willscott/go-nfs"
@@ -81,5 +84,41 @@ func TestNFS(t *testing.T) {
 	}
 	if !bytes.Equal(buf, b) {
 		t.Fatal("written does not match expected")
+	}
+
+	// for test nfs.ReadDirPlus in case of many files
+	dirF1, err := mem.ReadDir("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shouldBeNames := []string{".", ".."}
+	for _, f := range dirF1 {
+		shouldBeNames = append(shouldBeNames, f.Name())
+	}
+	for i := 0; i < 100; i++ {
+		fName := fmt.Sprintf("f-%03d.txt", i)
+		shouldBeNames = append(shouldBeNames, fName)
+		f, err := mem.Create(fName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	entities, err := target.ReadDirPlus("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualBeNames := []string{}
+	for _, e := range entities {
+		actualBeNames = append(actualBeNames, e.Name())
+	}
+
+	as := sort.StringSlice(shouldBeNames)
+	bs := sort.StringSlice(actualBeNames)
+	as.Sort()
+	bs.Sort()
+	if !reflect.DeepEqual(as, bs) {
+		t.Fatal("nfs.ReadDirPlus error")
 	}
 }

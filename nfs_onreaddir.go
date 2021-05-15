@@ -59,7 +59,6 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	everStarted := started
 	//calculate the cookieverifier for this read-dir exercise.
 	//Note: this is an inefficient way to do this for large directories where
 	//paging actually occurs. however, the billy interface doesn't expose the
@@ -68,6 +67,12 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 
 	for i, c := range contents {
 		actualI := i + 2
+		if obj.Cookie > 0 && uint64(actualI) == obj.Cookie+1 {
+			verif := vHash.Sum([]byte{})[0:8]
+			if binary.BigEndian.Uint64(verif) != obj.CookieVerif {
+				return &NFSStatusError{NFSStatusBadCookie, nil}
+			}
+		}
 		if started {
 			entities = append(entities, readDirEntity{
 				FileID: 1337, //todo: does this matter?
@@ -78,11 +83,11 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			maxBytes += 512 // TODO: better estimation.
 		} else if uint64(actualI) == obj.Cookie {
 			started = true
-			everStarted = true
 		}
 		if started && (maxBytes > obj.Count || len(entities) > userHandle.HandleLimit()/2) {
 			started = false
 			entities = entities[0 : len(entities)-1]
+			break
 		}
 		if _, err := vHash.Write([]byte(c.Name())); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
@@ -90,10 +95,6 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	verif := vHash.Sum([]byte{})[0:8]
-
-	if obj.Cookie != 0 && (binary.BigEndian.Uint64(verif) != obj.CookieVerif || !everStarted) {
-		return &NFSStatusError{NFSStatusBadCookie, os.ErrInvalid}
-	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
@@ -109,11 +110,13 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if obj.Cookie == 0 {
-		// prefix the special "." and ".." entries.
+	if len(entities) > 0 {
 		if err := xdr.Write(writer, uint32(1)); err != nil { //next
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
+	}
+	if obj.Cookie == 0 {
+		// prefix the special "." and ".." entries.
 		if err := xdr.Write(writer, uint64(binary.BigEndian.Uint64(obj.Handle[0:8]))); err != nil { //fileID
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
@@ -143,7 +146,9 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 		next := 1
-		if len(entities) == 0 { next = 0 }
+		if len(entities) == 0 {
+			next = 0
+		}
 		if err := xdr.Write(writer, uint32(next)); err != nil { // next
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}

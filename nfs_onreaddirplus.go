@@ -57,7 +57,10 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return contents[i].Name() < contents[j].Name()
 	})
 
-	if obj.DirCount < 1024 || obj.MaxCount < 4096 {
+	// in case of test, nfs-client send:
+	// DirCount = 512
+	// MaxCount = 4096
+	if obj.DirCount < 512 || obj.MaxCount < 4096 {
 		return &NFSStatusError{NFSStatusTooSmall, nil}
 	}
 
@@ -66,7 +69,6 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	everStarted := started
 	//calculate the cookieverifier for this read-dir exercise.
 	//Note: this is an inefficient way to do this for large directories where
 	//paging actually occurs. however, the billy interface doesn't expose the
@@ -76,6 +78,12 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	for i, c := range contents {
 		// index of contents doesn't include '.' and '..'
 		actualI := i + 2
+		if obj.Cookie > 0 && uint64(actualI) == obj.Cookie+1 {
+			verif := vHash.Sum([]byte{})[0:8]
+			if binary.BigEndian.Uint64(verif) != obj.CookieVerif {
+				return &NFSStatusError{NFSStatusBadCookie, nil}
+			}
+		}
 		if started {
 			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
 			attrs := ToFileAttribute(c)
@@ -94,11 +102,11 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			maxBytes += 512 // TODO: better estimation.
 		} else if uint64(actualI) == obj.Cookie {
 			started = true
-			everStarted = true
 		}
 		if started && (dirBytes > obj.DirCount || maxBytes > obj.MaxCount || len(entities) > userHandle.HandleLimit()/2) {
 			started = false
 			entities = entities[0 : len(entities)-1]
+			break
 		}
 		if _, err := vHash.Write([]byte(c.Name())); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
@@ -106,10 +114,6 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	verif := vHash.Sum([]byte{})[0:8]
-
-	if obj.Cookie != 0 && (binary.BigEndian.Uint64(verif) != obj.CookieVerif || !everStarted) {
-		return &NFSStatusError{NFSStatusBadCookie, nil}
-	}
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
@@ -125,11 +129,13 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if obj.Cookie == 0 {
-		// prefix the special "." and ".." entries.
+	if len(entities) > 0 {
 		if err := xdr.Write(writer, uint32(1)); err != nil { //next
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
+	}
+	if obj.Cookie == 0 {
+		// prefix the special "." and ".." entries.
 		if err := xdr.Write(writer, uint64(binary.BigEndian.Uint64(obj.Handle[0:8]))); err != nil { //fileID
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
@@ -171,7 +177,9 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 		next := 1
-		if len(entities) == 0 { next = 0 }
+		if len(entities) == 0 {
+			next = 0
+		}
 		if err := xdr.Write(writer, uint32(next)); err != nil { // next
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
