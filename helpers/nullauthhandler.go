@@ -26,6 +26,11 @@ func (h *NullAuthHandler) Mount(ctx context.Context, conn net.Conn, req nfs.Moun
 	return
 }
 
+// Unmount indicates the client connection has terminated.
+func (h *NullAuthHandler) Unmount(ctx context.Context, conn net.Conn, dirpath []byte) error {
+	return nil
+}
+
 // Change provides an interface for updating file attributes.
 func (h *NullAuthHandler) Change(fs billy.Filesystem) billy.Change {
 	if c, ok := h.fs.(billy.Change); ok {
@@ -49,7 +54,7 @@ func (h *NullAuthHandler) FromHandle([]byte) (billy.Filesystem, []string, error)
 	return nil, []string{}, nil
 }
 
-// HandleLImit handled by cachingHandler
+// HandleLimit is handled by cachingHandler
 func (h *NullAuthHandler) HandleLimit() int {
 	return -1
 }

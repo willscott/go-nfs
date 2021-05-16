@@ -49,8 +49,12 @@ func onMount(ctx context.Context, w *response, userHandle Handler) error {
 }
 
 func onUMount(ctx context.Context, w *response, userHandle Handler) error {
-	_, err := xdr.ReadOpaque(w.req.Body)
+	dirpath, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
+		return err
+	}
+
+	if err := userHandle.Unmount(ctx, w.conn, dirpath); err != nil {
 		return err
 	}
 

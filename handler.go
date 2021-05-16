@@ -13,6 +13,8 @@ type Handler interface {
 
 	Mount(context.Context, net.Conn, MountRequest) (MountStatus, billy.Filesystem, []AuthFlavor)
 
+	Unmount(_ context.Context, _ net.Conn, dirpath []byte) error
+
 	// Change can return 'nil' if filesystem is read-only
 	Change(billy.Filesystem) billy.Change
 
