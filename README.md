@@ -33,24 +33,40 @@ The NFS server runs on a `net.Listener` to export a file system to NFS clients.
 Usage is structured similarly to many other golang network servers.
 
 ```golang
-import (
-   	"github.com/go-git/go-billy/v5/memfs"
+package main
 
+import (
+	"fmt"
+	"log"
+	"net"
+
+	"github.com/go-git/go-billy/v5/memfs"
 	nfs "github.com/willscott/go-nfs"
 	nfshelper "github.com/willscott/go-nfs/helpers"
 )
 
-listener, _ := net.Listen("tcp", ":0")
-fmt.Printf("Server running at %s\n", listener.Addr())
+func main() {
+	listener, err := net.Listen("tcp", ":0")
+	panicOnErr(err, "starting TCP listener")
+	fmt.Printf("Server running at %s\n", listener.Addr())
+	mem := memfs.New()
+	f, err := mem.Create("hello.txt")
+	panicOnErr(err, "creating file")
+	_, err = f.Write([]byte("hello world"))
+	panicOnErr(err, "writing data")
+	f.Close()
+	handler := nfshelper.NewNullAuthHandler(mem)
+	cacheHelper := nfshelper.NewCachingHandler(handler, 1)
+	panicOnErr(nfs.Serve(listener, cacheHelper), "serving nfs")
+}
 
-mem := memfs.New()
-f, err := mem.Create("hello.txt")
-f.Write([]byte("hello world"))
-f.Close()
-
-handler := nfshelper.NewNullAuthHandler(mem)
-cacheHelper := nfshelper.NewCachingHandler(handler)
-nfs.Serve(listener, cacheHelper)
+func panicOnErr(err error, desc ...interface{}) {
+	if err == nil {
+		return
+	}
+	log.Println(desc...)
+	log.Panicln(err)
+}
 ```
 
 Notes
