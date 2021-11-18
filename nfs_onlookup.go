@@ -3,7 +3,7 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"log"
 	"os"
 
 	"github.com/go-git/go-billy/v5"
@@ -87,6 +87,6 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		}
 	}
 
-	fmt.Printf("No file for lookup of %v\n", string(obj.Filename))
+	log.Printf("No file for lookup of %v\n", string(obj.Filename))
 	return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 }
