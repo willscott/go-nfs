@@ -3,14 +3,15 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"log"
+	"fmt"
+	"io/fs"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
-func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs billy.Filesystem) ([]byte, error) {
+func lookupSuccessResponse(handle []byte, entPath, dirPath []string, fs fs.FS) ([]byte, error) {
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return nil, err
@@ -39,7 +40,7 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	contents, err := fs.ReadDir(fs.Join(p...))
+	contents, err := filesystem.ReadDir(fs, filesystem.Join(fs, p...))
 	if err != nil {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
@@ -87,6 +88,6 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		}
 	}
 
-	log.Printf("No file for lookup of %v\n", string(obj.Filename))
+	fmt.Printf("No file for lookup of %v\n\n", string(obj.Filename))
 	return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 }

@@ -5,8 +5,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 // onCommit - note this is a no-op, as we always push writes to the backing store.
@@ -22,7 +22,7 @@ func onCommit(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		return &NFSStatusError{NFSStatusServerFault, os.ErrPermission}
 	}
 

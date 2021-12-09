@@ -164,6 +164,12 @@ func basicErrorFormatter(err error) RPCError {
 	return &ResponseCodeSystemError{}
 }
 
+// wrapperError used to debug errors
+type wrapperError interface {
+	error
+	Unwrap() error
+}
+
 // NFSStatusError represents an error at the NFS level.
 type NFSStatusError struct {
 	NFSStatus

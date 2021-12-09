@@ -3,14 +3,15 @@ package nfs
 import (
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"math"
 	"os"
 	"time"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 	"github.com/willscott/go-nfs/file"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 // FileAttribute holds metadata about a filesystem object
@@ -86,26 +87,26 @@ func (f FileAttribute) AsCache() *FileCacheAttribute {
 }
 
 // ToFileAttribute creates an NFS fattr3 struct from an OS.FileInfo
-func ToFileAttribute(info os.FileInfo) *FileAttribute {
+func ToFileAttribute(info fs.FileInfo) *FileAttribute {
 	f := FileAttribute{}
 
 	m := info.Mode()
 	f.FileMode = uint32(m)
 	if info.IsDir() {
 		f.Type = FileTypeDirectory
-	} else if m&os.ModeSymlink != 0 {
+	} else if m&fs.ModeSymlink != 0 {
 		f.Type = FileTypeLink
-	} else if m&os.ModeCharDevice != 0 {
+	} else if m&fs.ModeCharDevice != 0 {
 		f.Type = FileTypeCharacter
 		// TODO: set major/minor dev number
 		//f.SpecData = 0,0
-	} else if m&os.ModeDevice != 0 {
+	} else if m&fs.ModeDevice != 0 {
 		f.Type = FileTypeBlock
 		// TODO: set major/minor dev number
 		//f.SpecData = 0,0
-	} else if m&os.ModeSocket != 0 {
+	} else if m&fs.ModeSocket != 0 {
 		f.Type = FileTypeSocket
-	} else if m&os.ModeNamedPipe != 0 {
+	} else if m&fs.ModeNamedPipe != 0 {
 		f.Type = FileTypeFIFO
 	} else {
 		f.Type = FileTypeRegular
@@ -128,13 +129,14 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 }
 
 // tryStat attempts to create a FileAttribute from a path.
-func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
-	attrs, err := fs.Stat(fs.Join(path...))
-	if err != nil || attrs == nil {
-		log.Printf("err loading attrs for %s: %v", fs.Join(path...), err)
+func tryStat(fs fs.FS, path []string) *FileAttribute {
+	file, err := fs.Open(filesystem.Join(fs, path...))
+	fileInfo, err := file.Stat()
+	if err != nil || fileInfo == nil {
+		log.Printf("err loading attrs for %s: %v", filesystem.Join(fs, path...), err)
 		return nil
 	}
-	return ToFileAttribute(attrs)
+	return ToFileAttribute(fileInfo)
 }
 
 // WriteWcc writes the `wcc_data` representation of an object.
@@ -196,8 +198,8 @@ type SetFileAttributes struct {
 
 // Apply uses a `Change` implementation to set defined attributes on a
 // provided file.
-func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
-	curOS, err := fs.Lstat(file)
+func (s *SetFileAttributes) Apply(changer filesystem.Change, fs fs.FS, file string) error {
+	curInfo, err := filesystem.Lstat(fs, file)
 	if errors.Is(err, os.ErrNotExist) {
 		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 	} else if errors.Is(err, os.ErrPermission) {
@@ -205,7 +207,8 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 	} else if err != nil {
 		return nil
 	}
-	curr := ToFileAttribute(curOS)
+
+	curr := ToFileAttribute(curInfo)
 
 	if s.SetMode != nil {
 		mode := os.FileMode(*s.SetMode) & os.ModePerm
@@ -246,7 +249,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if curr.Mode()&os.ModeSymlink != 0 {
 			return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 		}
-		fp, err := fs.OpenFile(file, os.O_WRONLY|os.O_EXCL, 0)
+		fp, err := filesystem.OpenFile(fs, file, os.O_WRONLY|os.O_EXCL, 0)
 		if errors.Is(err, os.ErrPermission) {
 			return &NFSStatusError{NFSStatusAccess, err}
 		} else if err != nil {
@@ -255,7 +258,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if *s.SetSize > math.MaxInt64 {
 			return &NFSStatusError{NFSStatusInval, os.ErrInvalid}
 		}
-		if err := fp.Truncate(int64(*s.SetSize)); err != nil {
+		if err := filesystem.Truncate(fp, int64(*s.SetSize)); err != nil {
 			return err
 		}
 		if err := fp.Close(); err != nil {

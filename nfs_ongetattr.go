@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 func onGetAttr(ctx context.Context, w *response, userHandle Handler) error {
@@ -19,7 +20,7 @@ func onGetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	info, err := fs.Stat(fs.Join(path...))
+	info, err := filesystem.Stat(fs, filesystem.Join(fs, path...))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}

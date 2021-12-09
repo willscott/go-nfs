@@ -8,8 +8,8 @@ import (
 	"math"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 // writeStability is the level of durability requested with the write
@@ -40,7 +40,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 	if len(req.Data) > math.MaxInt32 || req.Count > math.MaxInt32 {
@@ -51,7 +51,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	// stat first for pre-op wcc.
-	info, err := fs.Stat(fs.Join(path...))
+	info, err := filesystem.Stat(fs, filesystem.Join(fs, path...))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -64,12 +64,12 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	preOpCache := ToFileAttribute(info).AsCache()
 
 	// now the actual op.
-	file, err := fs.OpenFile(fs.Join(path...), os.O_RDWR, info.Mode().Perm())
+	file, err := filesystem.OpenFile(fs, filesystem.Join(fs, path...), os.O_RDWR, info.Mode().Perm())
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 	if req.Offset > 0 {
-		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
+		if _, err := filesystem.Seek(file, int64(req.Offset), io.SeekStart); err != nil {
 			return &NFSStatusError{NFSStatusIO, err}
 		}
 	}
@@ -77,7 +77,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if len(req.Data) < int(end) {
 		end = uint32(len(req.Data))
 	}
-	writtenCount, err := file.Write(req.Data[:end])
+	writtenCount, err := filesystem.Write(file, req.Data[:end])
 	if err != nil {
 		log.Printf("Error writing: %v", err)
 		return &NFSStatusError{NFSStatusIO, err}

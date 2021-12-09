@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 const (
@@ -52,7 +52,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 
@@ -60,8 +60,8 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNameTooLong, nil}
 	}
 
-	newFilePath := fs.Join(append(path, string(obj.Filename))...)
-	if s, err := fs.Stat(newFilePath); err == nil {
+	newFilePath := filesystem.Join(fs, append(path, string(obj.Filename))...)
+	if s, err := filesystem.Stat(fs, newFilePath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusError{NFSStatusExist, nil}
 		}
@@ -69,14 +69,14 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusExist, os.ErrPermission}
 		}
 	} else {
-		if s, err := fs.Stat(fs.Join(path...)); err != nil {
+		if s, err := filesystem.Stat(fs, filesystem.Join(fs, path...)); err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		} else if !s.IsDir() {
 			return &NFSStatusError{NFSStatusNotDir, nil}
 		}
 	}
 
-	file, err := fs.Create(newFilePath)
+	file, err := filesystem.Create(fs, newFilePath)
 	if err != nil {
 		log.Printf("Error Creating: %v", err)
 		return &NFSStatusError{NFSStatusAccess, err}
@@ -86,7 +86,13 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
-	fp := userHandle.ToHandle(fs, append(path, file.Name()))
+	fileStats, err := file.Stat()
+	if err != nil {
+		log.Printf("Error reading stats: %v", err)
+		return &NFSStatusError{NFSStatusAccess, err}
+	}
+
+	fp := userHandle.ToHandle(fs, append(path, fileStats.Name()))
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
 		log.Printf("Error applying attributes: %v\n", err)
@@ -105,7 +111,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, file.Name()))); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, fileStats.Name()))); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

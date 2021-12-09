@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 func onFSStat(ctx context.Context, w *response, userHandle Handler) error {
@@ -27,7 +27,7 @@ func onFSStat(ctx context.Context, w *response, userHandle Handler) error {
 		AvailableFiles: 1 << 62,
 		CacheHint:      0,
 	}
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		defaults.AvailableFiles = 0
 		defaults.AvailableSize = 0
 	}

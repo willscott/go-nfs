@@ -1,9 +1,10 @@
 package helpers
 
 import (
+	"io/fs"
+
 	"github.com/willscott/go-nfs"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru"
 )
@@ -26,14 +27,14 @@ type CachingHandler struct {
 }
 
 type entry struct {
-	f billy.Filesystem
+	f fs.FS
 	p []string
 }
 
 // ToHandle takes a file and represents it with an opaque handle to reference it.
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
-func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
+func (c *CachingHandler) ToHandle(f fs.FS, path []string) []byte {
 	id := uuid.New()
 	c.activeHandles.Add(id, entry{f, path})
 	b, _ := id.MarshalBinary()
@@ -41,7 +42,7 @@ func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 }
 
 // FromHandle converts from an opaque handle to the file it represents
-func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, error) {
+func (c *CachingHandler) FromHandle(fh []byte) (fs.FS, []string, error) {
 	id, err := uuid.FromBytes(fh)
 	if err != nil {
 		return nil, []string{}, err

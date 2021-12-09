@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 func onAccess(ctx context.Context, w *response, userHandle Handler) error {
@@ -30,7 +30,7 @@ func onAccess(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		mask = mask & (1 | 2 | 0x20)
 	}
 

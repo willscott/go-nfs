@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 type readDirPlusArgs struct {
@@ -48,7 +49,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	contents, err := fs.ReadDir(fs.Join(p...))
+	contents, err := filesystem.ReadDir(fs, filesystem.Join(fs, p...))
 	if err != nil {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
@@ -86,7 +87,11 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		if started {
 			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
-			attrs := ToFileAttribute(c)
+			info, err := c.Info()
+			if err != nil {
+				return &NFSStatusError{NFSStatusServerFault, err}
+			}
+			attrs := ToFileAttribute(info)
 			attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
 			entities = append(entities, readDirPlusEntity{
 				FileID:        binary.BigEndian.Uint64(handle[0:8]),

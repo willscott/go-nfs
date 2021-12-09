@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 const (
@@ -72,7 +73,7 @@ func onFSInfo(ctx context.Context, w *response, userHandle Handler) error {
 	// to support granular PATHINFO responses.
 	res.Properties |= FSInfoPropertyHomogeneous
 	// TODO: not a perfect indicator
-	if billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		res.Properties |= FSInfoPropertyCanSetTime
 	}
 	// TODO: this whole struct should be specifiable by the userhandler.

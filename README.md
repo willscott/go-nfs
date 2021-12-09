@@ -94,3 +94,15 @@ which do not translate to this abstraction.
 [5531 - RPC protocol](https://tools.ietf.org/html/rfc5531),
 [1813 - NFSv3](https://tools.ietf.org/html/rfc1813),
 [1094 - NFS](https://tools.ietf.org/html/rfc1094)
+
+
+# Test code:
+
+```
+mkdir /tmp/test
+mount -o port=1000,mountport=1000 -t nfs localhost:/ /tmp/test
+```
+
+```
+go run ./example/osnfs/ ./file 1000
+```

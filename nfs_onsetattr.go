@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"syscall"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
@@ -28,7 +28,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 
-	info, err := fs.Lstat(fs.Join(path...))
+	info, err := filesystem.Lstat(fs, filesystem.Join(fs, path...))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -63,12 +63,12 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 	TIME_GOOD:
 	}
 
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 
 	changer := userHandle.Change(fs)
-	if err := attrs.Apply(changer, fs, fs.Join(path...)); err != nil {
+	if err := attrs.Apply(changer, fs, filesystem.Join(fs, path...)); err != nil {
 		// Already an nfsstatuserror
 		return err
 	}

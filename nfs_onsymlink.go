@@ -5,8 +5,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
@@ -30,7 +30,7 @@ func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if !billy.CapabilityCheck(fs, billy.WriteCapability) {
+	if !filesystem.WriteCapabilityCheck(fs) {
 		return &NFSStatusError{NFSStatusROFS, os.ErrPermission}
 	}
 
@@ -38,17 +38,17 @@ func onSymlink(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNameTooLong, os.ErrInvalid}
 	}
 
-	newFilePath := fs.Join(append(path, string(obj.Filename))...)
-	if _, err := fs.Stat(newFilePath); err == nil {
+	newFilePath := filesystem.Join(fs, append(path, string(obj.Filename))...)
+	if _, err := filesystem.Stat(fs, newFilePath); err == nil {
 		return &NFSStatusError{NFSStatusExist, os.ErrExist}
 	}
-	if s, err := fs.Stat(fs.Join(path...)); err != nil {
+	if s, err := filesystem.Stat(fs, filesystem.Join(fs, path...)); err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	} else if !s.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
 
-	err = fs.Symlink(string(target), newFilePath)
+	err = filesystem.Symlink(fs, string(target), newFilePath)
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}

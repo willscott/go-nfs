@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/filesystem"
 )
 
 type nfsReadArgs struct {
@@ -42,7 +43,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	fh, err := fs.Open(fs.Join(path...))
+	fh, err := fs.Open(filesystem.Join(fs, path...))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -53,7 +54,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	resp := nfsReadResponse{}
 
 	if obj.Count > CheckRead {
-		info, err := fs.Stat(fs.Join(path...))
+		info, err := filesystem.Stat(fs, filesystem.Join(fs, path...))
 		if err != nil {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
@@ -66,7 +67,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	resp.Data = make([]byte, obj.Count)
 	// todo: multiple reads if size isn't full
-	cnt, err := fh.ReadAt(resp.Data, int64(obj.Offset))
+	cnt, err := filesystem.ReadAt(fh, resp.Data, int64(obj.Offset))
 	if err != nil && !errors.Is(err, io.EOF) {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
