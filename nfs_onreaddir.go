@@ -3,11 +3,8 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"io"
-	"os"
-	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -34,45 +31,31 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 
+	if obj.Count < 1024 {
+		return &NFSStatusError{NFSStatusTooSmall, io.ErrShortBuffer}
+	}
+
 	fs, p, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	contents, err := fs.ReadDir(fs.Join(p...))
+	contents, verify, err := contentsWithVerifier(fs, fs.Join(p...))
 	if err != nil {
-		if os.IsPermission(err) {
-			return &NFSStatusError{NFSStatusAccess, err}
-		}
-		return &NFSStatusError{NFSStatusNotDir, err}
+		return err
 	}
 
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Name() < contents[j].Name()
-	})
-
-	if obj.Count < 1024 {
-		return &NFSStatusError{NFSStatusTooSmall, io.ErrShortBuffer}
+	if obj.Cookie != 0 && verify != obj.CookieVerif {
+		return &NFSStatusError{NFSStatusBadCookie, nil}
 	}
 
 	entities := make([]readDirEntity, 0)
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	//calculate the cookieverifier for this read-dir exercise.
-	//Note: this is an inefficient way to do this for large directories where
-	//paging actually occurs. however, the billy interface doesn't expose the
-	//granularity to do better, either.
-	vHash := sha256.New()
 
 	for i, c := range contents {
 		actualI := i + 2
-		if obj.Cookie > 0 && uint64(actualI) == obj.Cookie+1 {
-			verif := vHash.Sum([]byte{})[0:8]
-			if binary.BigEndian.Uint64(verif) != obj.CookieVerif {
-				return &NFSStatusError{NFSStatusBadCookie, nil}
-			}
-		}
 		if started {
 			entities = append(entities, readDirEntity{
 				FileID: 1337, //todo: does this matter?
@@ -89,12 +72,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			entities = entities[0 : len(entities)-1]
 			break
 		}
-		if _, err := vHash.Write([]byte(c.Name())); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
 	}
-
-	verif := vHash.Sum([]byte{})[0:8]
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
@@ -104,9 +82,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	var fixedVerif [8]byte
-	copy(fixedVerif[:], verif)
-	if err := xdr.Write(writer, fixedVerif); err != nil {
+	if err := xdr.Write(writer, verify); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 

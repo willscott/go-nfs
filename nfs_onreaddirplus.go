@@ -3,9 +3,8 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"sort"
+	"fmt"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -43,20 +42,6 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 
-	fs, p, err := userHandle.FromHandle(obj.Handle)
-	if err != nil {
-		return &NFSStatusError{NFSStatusStale, err}
-	}
-
-	contents, err := fs.ReadDir(fs.Join(p...))
-	if err != nil {
-		return &NFSStatusError{NFSStatusNotDir, err}
-	}
-
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Name() < contents[j].Name()
-	})
-
 	// in case of test, nfs-client send:
 	// DirCount = 512
 	// MaxCount = 4096
@@ -64,26 +49,30 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusTooSmall, nil}
 	}
 
+	fs, p, err := userHandle.FromHandle(obj.Handle)
+	if err != nil {
+		return &NFSStatusError{NFSStatusStale, err}
+	}
+
+	contents, verify, err := contentsWithVerifier(fs, fs.Join(p...))
+	if err != nil {
+		return err
+	}
+	if obj.Cookie != 0 && verify != obj.CookieVerif {
+		fmt.Printf("Expected %08x\n", verify)
+		fmt.Printf("Got      %08x\n", obj.CookieVerif)
+		return &NFSStatusError{NFSStatusBadCookie, nil}
+	}
+
 	entities := make([]readDirPlusEntity, 0)
 	dirBytes := uint32(0)
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	//calculate the cookieverifier for this read-dir exercise.
-	//Note: this is an inefficient way to do this for large directories where
-	//paging actually occurs. however, the billy interface doesn't expose the
-	//granularity to do better, either.
-	vHash := sha256.New()
 
 	for i, c := range contents {
 		// index of contents doesn't include '.' and '..'
 		actualI := i + 2
-		if obj.Cookie > 0 && uint64(actualI) == obj.Cookie+1 {
-			verif := vHash.Sum([]byte{})[0:8]
-			if binary.BigEndian.Uint64(verif) != obj.CookieVerif {
-				return &NFSStatusError{NFSStatusBadCookie, nil}
-			}
-		}
 		if started {
 			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
 			attrs := ToFileAttribute(c)
@@ -108,12 +97,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			entities = entities[0 : len(entities)-1]
 			break
 		}
-		if _, err := vHash.Write([]byte(c.Name())); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
 	}
-
-	verif := vHash.Sum([]byte{})[0:8]
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
@@ -123,9 +107,7 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	var fixedVerif [8]byte
-	copy(fixedVerif[:], verif)
-	if err := xdr.Write(writer, fixedVerif); err != nil {
+	if err := xdr.Write(writer, verify); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
