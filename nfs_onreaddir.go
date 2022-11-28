@@ -190,13 +190,21 @@ func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uin
 		return contents, v, nil
 	}
 
+	id := hashPathAndContents(path, contents)
+	return contents, id, nil
+}
+
+func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 	//calculate a cookie-verifier.
 	vHash := sha256.New()
+
+	// Add the path to avoid collisions of directories with the same content
+	vHash.Write([]byte(path))
 
 	for _, c := range contents {
 		vHash.Write([]byte(c.Name())) // Never fails according to the docs
 	}
 
 	verify := vHash.Sum(nil)[0:8]
-	return contents, binary.BigEndian.Uint64(verify), nil
+	return binary.BigEndian.Uint64(verify)
 }

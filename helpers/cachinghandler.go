@@ -1,8 +1,9 @@
 package helpers
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"io/fs"
-	"math/rand"
 
 	"github.com/willscott/go-nfs"
 
@@ -103,8 +104,23 @@ type verifier struct {
 	contents []fs.FileInfo
 }
 
+func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
+	//calculate a cookie-verifier.
+	vHash := sha256.New()
+
+	// Add the path to avoid collisions of directories with the same content
+	vHash.Write([]byte(path))
+
+	for _, c := range contents {
+		vHash.Write([]byte(c.Name())) // Never fails according to the docs
+	}
+
+	verify := vHash.Sum(nil)[0:8]
+	return binary.BigEndian.Uint64(verify)
+}
+
 func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64 {
-	id := rand.Uint64()
+	id := hashPathAndContents(path, contents)
 	c.activeVerifiers.Add(id, verifier{path, contents})
 	return id
 }
