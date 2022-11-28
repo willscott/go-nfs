@@ -34,5 +34,5 @@ type Handler interface {
 // their own implementations, but which can be otherwise provided through defaults.
 type CachingHandler interface {
 	VerifierFor(handle []byte, contents []fs.FileInfo) uint64
-	DataForVerifier(handle []byte, verifier uint64) ([]fs.FileInfo, error)
+	DataForVerifier(handle []byte, verifier uint64) []fs.FileInfo
 }

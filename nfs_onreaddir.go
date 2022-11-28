@@ -168,10 +168,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uint64) ([]fs.FileInfo, uint64, error) {
 	// see if handle has this dir cached:
 	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
-		entries, err := vh.DataForVerifier(fsHandle, verifier)
-		if err != nil {
-			return nil, 0, err
-		}
+		entries := vh.DataForVerifier(fsHandle, verifier)
 		return entries, verifier, nil
 	}
 

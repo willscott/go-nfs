@@ -110,12 +110,12 @@ func (c *CachingHandler) VerifierFor(handle []byte, contents []fs.FileInfo) uint
 	return id
 }
 
-func (c *CachingHandler) DataForVerifier(handle []byte, id uint64) ([]fs.FileInfo, error) {
+func (c *CachingHandler) DataForVerifier(handle []byte, id uint64) []fs.FileInfo {
 	if cache, ok := c.activeVerifiers.Get(id); ok {
 		f, ok := cache.(verifier)
 		if ok && bytes.Equal(handle, f.handle) {
-			return f.contents, nil
+			return f.contents
 		}
 	}
-	return nil, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusBadCookie}
+	return nil
 }
