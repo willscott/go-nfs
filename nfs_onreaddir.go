@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
+	"io/fs"
 	"os"
 	"sort"
 
@@ -34,45 +35,37 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 
+	if obj.Count < 1024 {
+		return &NFSStatusError{NFSStatusTooSmall, io.ErrShortBuffer}
+	}
+
 	fs, p, err := userHandle.FromHandle(obj.Handle)
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	contents, err := fs.ReadDir(fs.Join(p...))
+	contents, verifier, err := getDirListingWithVerifier(userHandle, obj.Handle, obj.CookieVerif)
 	if err != nil {
 		if os.IsPermission(err) {
 			return &NFSStatusError{NFSStatusAccess, err}
 		}
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
+	if obj.Cookie > 0 && obj.CookieVerif > 0 && verifier != obj.CookieVerif {
+		return &NFSStatusError{NFSStatusBadCookie, nil}
+	}
 
 	sort.Slice(contents, func(i, j int) bool {
 		return contents[i].Name() < contents[j].Name()
 	})
 
-	if obj.Count < 1024 {
-		return &NFSStatusError{NFSStatusTooSmall, io.ErrShortBuffer}
-	}
-
 	entities := make([]readDirEntity, 0)
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	//calculate the cookieverifier for this read-dir exercise.
-	//Note: this is an inefficient way to do this for large directories where
-	//paging actually occurs. however, the billy interface doesn't expose the
-	//granularity to do better, either.
-	vHash := sha256.New()
 
 	for i, c := range contents {
 		actualI := i + 2
-		if obj.Cookie > 0 && uint64(actualI) == obj.Cookie+1 {
-			verif := vHash.Sum([]byte{})[0:8]
-			if binary.BigEndian.Uint64(verif) != obj.CookieVerif {
-				return &NFSStatusError{NFSStatusBadCookie, nil}
-			}
-		}
 		if started {
 			entities = append(entities, readDirEntity{
 				FileID: 1337, //todo: does this matter?
@@ -89,12 +82,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 			entities = entities[0 : len(entities)-1]
 			break
 		}
-		if _, err := vHash.Write([]byte(c.Name())); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
 	}
-
-	verif := vHash.Sum([]byte{})[0:8]
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
@@ -104,9 +92,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	var fixedVerif [8]byte
-	copy(fixedVerif[:], verif)
-	if err := xdr.Write(writer, fixedVerif); err != nil {
+	if err := xdr.Write(writer, verifier); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
@@ -177,4 +163,49 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	return nil
+}
+
+func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uint64) ([]fs.FileInfo, uint64, error) {
+	// see if handle has this dir cached:
+	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
+		entries, err := vh.DataForVerifier(fsHandle, verifier)
+		if err != nil {
+			return nil, 0, err
+		}
+		return entries, verifier, nil
+	}
+
+	// figure out what directory it is.
+	fs, p, err := userHandle.FromHandle(fsHandle)
+	if err != nil {
+		return nil, 0, &NFSStatusError{NFSStatusStale, err}
+	}
+	// load the entries.
+	contents, err := fs.ReadDir(fs.Join(p...))
+	if err != nil {
+		if os.IsPermission(err) {
+			return nil, 0, &NFSStatusError{NFSStatusAccess, err}
+		}
+		return nil, 0, &NFSStatusError{NFSStatusNotDir, err}
+	}
+
+	sort.Slice(contents, func(i, j int) bool {
+		return contents[i].Name() < contents[j].Name()
+	})
+
+	if vh, ok := userHandle.(CachingHandler); ok {
+		// let the user handler make a verifier if it can.
+		v := vh.VerifierFor(fsHandle, contents)
+		return contents, v, nil
+	}
+
+	//calculate a cookie-verifier.
+	vHash := sha256.New()
+
+	for _, c := range contents {
+		vHash.Write([]byte(c.Name())) // Never fails according to the docs
+	}
+
+	verify := vHash.Sum(nil)[0:8]
+	return contents, binary.BigEndian.Uint64(verify), nil
 }

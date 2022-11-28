@@ -2,6 +2,7 @@ package nfs
 
 import (
 	"context"
+	"io/fs"
 	"net"
 
 	billy "github.com/go-git/go-billy/v5"
@@ -27,4 +28,11 @@ type Handler interface {
 	FromHandle(fh []byte) (billy.Filesystem, []string, error)
 	// How many handles can be safely maintained by the handler.
 	HandleLimit() int
+}
+
+// CachingHandler represents the optional caching work that a user may wish to over-ride with
+// their own implementations, but which can be otherwise provided through defaults.
+type CachingHandler interface {
+	VerifierFor(handle []byte, contents []fs.FileInfo) uint64
+	DataForVerifier(handle []byte, verifier uint64) ([]fs.FileInfo, error)
 }

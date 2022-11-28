@@ -1,6 +1,10 @@
 package helpers
 
 import (
+	"bytes"
+	"io/fs"
+	"math/rand"
+
 	"github.com/willscott/go-nfs"
 
 	"github.com/go-git/go-billy/v5"
@@ -11,18 +15,33 @@ import (
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
 func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
 	cache, _ := lru.New(limit)
+	verifiers, _ := lru.New(limit)
 	return &CachingHandler{
-		Handler:       h,
-		activeHandles: cache,
-		cacheLimit:    limit,
+		Handler:         h,
+		activeHandles:   cache,
+		activeVerifiers: verifiers,
+		cacheLimit:      limit,
+	}
+}
+
+// NewCachingHandlerWithVerifierLimit provides a basic to/from-file handle cache that can be tuned with a smaller cache of active directory listings.
+func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) nfs.Handler {
+	cache, _ := lru.New(limit)
+	verifiers, _ := lru.New(verifierLimit)
+	return &CachingHandler{
+		Handler:         h,
+		activeHandles:   cache,
+		activeVerifiers: verifiers,
+		cacheLimit:      limit,
 	}
 }
 
 // CachingHandler implements to/from handle via an LRU cache.
 type CachingHandler struct {
 	nfs.Handler
-	activeHandles *lru.Cache
-	cacheLimit    int
+	activeHandles   *lru.Cache
+	activeVerifiers *lru.Cache
+	cacheLimit      int
 }
 
 type entry struct {
@@ -78,4 +97,25 @@ func hasPrefix(path, prefix []string) bool {
 		}
 	}
 	return true
+}
+
+type verifier struct {
+	handle   []byte
+	contents []fs.FileInfo
+}
+
+func (c *CachingHandler) VerifierFor(handle []byte, contents []fs.FileInfo) uint64 {
+	id := rand.Uint64()
+	c.activeVerifiers.Add(id, verifier{handle, contents})
+	return id
+}
+
+func (c *CachingHandler) DataForVerifier(handle []byte, id uint64) ([]fs.FileInfo, error) {
+	if cache, ok := c.activeVerifiers.Get(id); ok {
+		f, ok := cache.(verifier)
+		if ok && bytes.Equal(handle, f.handle) {
+			return f.contents, nil
+		}
+	}
+	return nil, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusBadCookie}
 }
