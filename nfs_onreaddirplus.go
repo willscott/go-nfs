@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -56,22 +55,17 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 
 	contents, verifier, err := getDirListingWithVerifier(userHandle, obj.Handle, obj.CookieVerif)
 	if err != nil {
-		return &NFSStatusError{NFSStatusNotDir, err}
+		return err
 	}
-
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Name() < contents[j].Name()
-	})
+	if obj.Cookie > 0 && obj.CookieVerif > 0 && verifier != obj.CookieVerif {
+		return &NFSStatusError{NFSStatusBadCookie, nil}
+	}
 
 	entities := make([]readDirPlusEntity, 0)
 	dirBytes := uint32(0)
 	maxBytes := uint32(100) // conservative overhead measure
 
 	started := (obj.Cookie == 0)
-	if started && obj.CookieVerif > 0 && verifier != obj.CookieVerif {
-		return &NFSStatusError{NFSStatusBadCookie, nil}
-	}
-
 	for i, c := range contents {
 		// index of contents doesn't include '.' and '..'
 		actualI := i + 2

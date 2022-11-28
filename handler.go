@@ -34,5 +34,7 @@ type Handler interface {
 // their own implementations, but which can be otherwise provided through defaults.
 type CachingHandler interface {
 	VerifierFor(path string, contents []fs.FileInfo) uint64
+
+	// fs.FileInfo needs to be sorted by Name()
 	DataForVerifier(path string, verifier uint64) []fs.FileInfo
 }

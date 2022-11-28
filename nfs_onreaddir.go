@@ -46,18 +46,11 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 
 	contents, verifier, err := getDirListingWithVerifier(userHandle, obj.Handle, obj.CookieVerif)
 	if err != nil {
-		if os.IsPermission(err) {
-			return &NFSStatusError{NFSStatusAccess, err}
-		}
-		return &NFSStatusError{NFSStatusNotDir, err}
+		return err
 	}
 	if obj.Cookie > 0 && obj.CookieVerif > 0 && verifier != obj.CookieVerif {
 		return &NFSStatusError{NFSStatusBadCookie, nil}
 	}
-
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Name() < contents[j].Name()
-	})
 
 	entities := make([]readDirEntity, 0)
 	maxBytes := uint32(100) // conservative overhead measure
