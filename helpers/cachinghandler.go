@@ -1,7 +1,6 @@
 package helpers
 
 import (
-	"bytes"
 	"io/fs"
 	"math/rand"
 
@@ -100,20 +99,20 @@ func hasPrefix(path, prefix []string) bool {
 }
 
 type verifier struct {
-	handle   []byte
+	path     string
 	contents []fs.FileInfo
 }
 
-func (c *CachingHandler) VerifierFor(handle []byte, contents []fs.FileInfo) uint64 {
+func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64 {
 	id := rand.Uint64()
-	c.activeVerifiers.Add(id, verifier{handle, contents})
+	c.activeVerifiers.Add(id, verifier{path, contents})
 	return id
 }
 
-func (c *CachingHandler) DataForVerifier(handle []byte, id uint64) []fs.FileInfo {
+func (c *CachingHandler) DataForVerifier(path string, id uint64) []fs.FileInfo {
 	if cache, ok := c.activeVerifiers.Get(id); ok {
 		f, ok := cache.(verifier)
-		if ok && bytes.Equal(handle, f.handle) {
+		if ok || path == f.path {
 			return f.contents
 		}
 	}

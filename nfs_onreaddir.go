@@ -166,19 +166,20 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 }
 
 func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uint64) ([]fs.FileInfo, uint64, error) {
-	// see if handle has this dir cached:
-	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
-		entries := vh.DataForVerifier(fsHandle, verifier)
-		return entries, verifier, nil
-	}
-
 	// figure out what directory it is.
 	fs, p, err := userHandle.FromHandle(fsHandle)
 	if err != nil {
 		return nil, 0, &NFSStatusError{NFSStatusStale, err}
 	}
+
+	path := fs.Join(p...)
+	// see if the verifier has this dir cached:
+	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
+		entries := vh.DataForVerifier(path, verifier)
+		return entries, verifier, nil
+	}
 	// load the entries.
-	contents, err := fs.ReadDir(fs.Join(p...))
+	contents, err := fs.ReadDir(path)
 	if err != nil {
 		if os.IsPermission(err) {
 			return nil, 0, &NFSStatusError{NFSStatusAccess, err}
@@ -192,7 +193,7 @@ func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uin
 
 	if vh, ok := userHandle.(CachingHandler); ok {
 		// let the user handler make a verifier if it can.
-		v := vh.VerifierFor(fsHandle, contents)
+		v := vh.VerifierFor(path, contents)
 		return contents, v, nil
 	}
 

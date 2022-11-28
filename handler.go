@@ -33,6 +33,6 @@ type Handler interface {
 // CachingHandler represents the optional caching work that a user may wish to over-ride with
 // their own implementations, but which can be otherwise provided through defaults.
 type CachingHandler interface {
-	VerifierFor(handle []byte, contents []fs.FileInfo) uint64
-	DataForVerifier(handle []byte, verifier uint64) []fs.FileInfo
+	VerifierFor(path string, contents []fs.FileInfo) uint64
+	DataForVerifier(path string, verifier uint64) []fs.FileInfo
 }
