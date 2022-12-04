@@ -109,6 +109,7 @@ func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
 	vHash := sha256.New()
 
 	// Add the path to avoid collisions of directories with the same content
+	vHash.Write(binary.BigEndian.AppendUint64([]byte{}, uint64(len(path))))
 	vHash.Write([]byte(path))
 
 	for _, c := range contents {
@@ -128,7 +129,7 @@ func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64
 func (c *CachingHandler) DataForVerifier(path string, id uint64) []fs.FileInfo {
 	if cache, ok := c.activeVerifiers.Get(id); ok {
 		f, ok := cache.(verifier)
-		if ok || path == f.path {
+		if ok {
 			return f.contents
 		}
 	}
