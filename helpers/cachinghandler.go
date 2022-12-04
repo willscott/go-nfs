@@ -1,6 +1,10 @@
 package helpers
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"io/fs"
+
 	"github.com/willscott/go-nfs"
 
 	"github.com/go-git/go-billy/v5"
@@ -11,18 +15,33 @@ import (
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
 func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
 	cache, _ := lru.New(limit)
+	verifiers, _ := lru.New(limit)
 	return &CachingHandler{
-		Handler:       h,
-		activeHandles: cache,
-		cacheLimit:    limit,
+		Handler:         h,
+		activeHandles:   cache,
+		activeVerifiers: verifiers,
+		cacheLimit:      limit,
+	}
+}
+
+// NewCachingHandlerWithVerifierLimit provides a basic to/from-file handle cache that can be tuned with a smaller cache of active directory listings.
+func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) nfs.Handler {
+	cache, _ := lru.New(limit)
+	verifiers, _ := lru.New(verifierLimit)
+	return &CachingHandler{
+		Handler:         h,
+		activeHandles:   cache,
+		activeVerifiers: verifiers,
+		cacheLimit:      limit,
 	}
 }
 
 // CachingHandler implements to/from handle via an LRU cache.
 type CachingHandler struct {
 	nfs.Handler
-	activeHandles *lru.Cache
-	cacheLimit    int
+	activeHandles   *lru.Cache
+	activeVerifiers *lru.Cache
+	cacheLimit      int
 }
 
 type entry struct {
@@ -78,4 +97,41 @@ func hasPrefix(path, prefix []string) bool {
 		}
 	}
 	return true
+}
+
+type verifier struct {
+	path     string
+	contents []fs.FileInfo
+}
+
+func hashPathAndContents(path string, contents []fs.FileInfo) uint64 {
+	//calculate a cookie-verifier.
+	vHash := sha256.New()
+
+	// Add the path to avoid collisions of directories with the same content
+	vHash.Write(binary.BigEndian.AppendUint64([]byte{}, uint64(len(path))))
+	vHash.Write([]byte(path))
+
+	for _, c := range contents {
+		vHash.Write([]byte(c.Name())) // Never fails according to the docs
+	}
+
+	verify := vHash.Sum(nil)[0:8]
+	return binary.BigEndian.Uint64(verify)
+}
+
+func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64 {
+	id := hashPathAndContents(path, contents)
+	c.activeVerifiers.Add(id, verifier{path, contents})
+	return id
+}
+
+func (c *CachingHandler) DataForVerifier(path string, id uint64) []fs.FileInfo {
+	if cache, ok := c.activeVerifiers.Get(id); ok {
+		f, ok := cache.(verifier)
+		if ok {
+			return f.contents
+		}
+	}
+	return nil
 }
