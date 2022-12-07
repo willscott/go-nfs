@@ -9,13 +9,13 @@ import (
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/google/uuid"
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
 func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
-	cache, _ := lru.New(limit)
-	verifiers, _ := lru.New(limit)
+	cache, _ := lru.New[uuid.UUID, entry](limit)
+	verifiers, _ := lru.New[uint64, verifier](limit)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
@@ -26,8 +26,8 @@ func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
 
 // NewCachingHandlerWithVerifierLimit provides a basic to/from-file handle cache that can be tuned with a smaller cache of active directory listings.
 func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) nfs.Handler {
-	cache, _ := lru.New(limit)
-	verifiers, _ := lru.New(verifierLimit)
+	cache, _ := lru.New[uuid.UUID, entry](limit)
+	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
@@ -39,8 +39,8 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 // CachingHandler implements to/from handle via an LRU cache.
 type CachingHandler struct {
 	nfs.Handler
-	activeHandles   *lru.Cache
-	activeVerifiers *lru.Cache
+	activeHandles   *lru.Cache[uuid.UUID, entry]
+	activeVerifiers *lru.Cache[uint64, verifier]
 	cacheLimit      int
 }
 
@@ -66,11 +66,9 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 		return nil, []string{}, err
 	}
 
-	if cache, ok := c.activeHandles.Get(id); ok {
-		f, ok := cache.(entry)
+	if f, ok := c.activeHandles.Get(id); ok {
 		for _, k := range c.activeHandles.Keys() {
-			e, _ := c.activeHandles.Peek(k)
-			candidate := e.(entry)
+			candidate, _ := c.activeHandles.Peek(k)
 			if hasPrefix(f.p, candidate.p) {
 				_, _ = c.activeHandles.Get(k)
 			}
@@ -128,10 +126,7 @@ func (c *CachingHandler) VerifierFor(path string, contents []fs.FileInfo) uint64
 
 func (c *CachingHandler) DataForVerifier(path string, id uint64) []fs.FileInfo {
 	if cache, ok := c.activeVerifiers.Get(id); ok {
-		f, ok := cache.(verifier)
-		if ok {
-			return f.contents
-		}
+		return cache.contents
 	}
 	return nil
 }

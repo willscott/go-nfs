@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 
@@ -260,7 +259,7 @@ func (w *response) drain(ctx context.Context) error {
 			return nil
 		}
 		// todo: wrap body in a context reader.
-		_, err := io.CopyN(ioutil.Discard, w.req.Body, reader.N)
+		_, err := io.CopyN(io.Discard, w.req.Body, reader.N)
 		if err == nil || err == io.EOF {
 			return nil
 		}
