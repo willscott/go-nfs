@@ -24,7 +24,7 @@ type readDirEntity struct {
 	FileID uint64
 	Name   []byte
 	Cookie uint64
-	Next   uint32
+	Next   bool
 }
 
 func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
@@ -55,25 +55,40 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 	entities := make([]readDirEntity, 0)
 	maxBytes := uint32(100) // conservative overhead measure
 
-	started := (obj.Cookie == 0)
-
-	for i, c := range contents {
-		actualI := i + 2
-		if started {
-			entities = append(entities, readDirEntity{
-				FileID: 1337, //todo: does this matter?
-				Name:   []byte(c.Name()),
-				Cookie: uint64(actualI),
-				Next:   1,
-			})
-			maxBytes += 512 // TODO: better estimation.
-		} else if uint64(actualI) == obj.Cookie {
-			started = true
+	started := obj.Cookie == 0
+	if started {
+		// add '.' and '..' to entities
+		dotdotFileID := uint64(0)
+		if len(p) > 0 {
+			ph := userHandle.ToHandle(fs, p[0:len(p)-1])
+			dotdotFileID = binary.BigEndian.Uint64(ph[0:8])
 		}
-		if started && (maxBytes > obj.Count || len(entities) > userHandle.HandleLimit()/2) {
-			started = false
-			entities = entities[0 : len(entities)-1]
-			break
+		entities = append(entities,
+			readDirEntity{Name: []byte("."), Cookie: 0, Next: true, FileID: binary.BigEndian.Uint64(obj.Handle[0:8])},
+			readDirEntity{Name: []byte(".."), Cookie: 1, Next: true, FileID: dotdotFileID},
+		)
+	}
+
+	eof := true
+	maxEntities := userHandle.HandleLimit() / 2
+	for i, c := range contents {
+		// cookie equates to index within contents + 2 (for '.' and '..')
+		cookie := uint64(i + 2)
+		if started {
+			maxBytes += 512 // TODO: better estimation.
+			if maxBytes > obj.Count || len(entities) > maxEntities {
+				eof = false
+				break
+			}
+
+			entities = append(entities, readDirEntity{
+				FileID: 1337, // todo: does this matter?
+				Name:   []byte(c.Name()),
+				Cookie: cookie,
+				Next:   true,
+			})
+		} else if cookie == obj.Cookie {
+			started = true
 		}
 	}
 
@@ -89,66 +104,21 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
-	if len(entities) > 0 {
-		if err := xdr.Write(writer, uint32(1)); err != nil { //next
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
+	if err := xdr.Write(writer, len(entities) > 0); err != nil { // next
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if obj.Cookie == 0 {
-		// prefix the special "." and ".." entries.
-		if err := xdr.Write(writer, uint64(binary.BigEndian.Uint64(obj.Handle[0:8]))); err != nil { //fileID
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		if err := xdr.Write(writer, []byte(".")); err != nil { // name
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		if err := xdr.Write(writer, uint64(0)); err != nil { // cookie
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		if err := xdr.Write(writer, uint32(1)); err != nil { // next
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		if len(p) > 0 {
-			ph := userHandle.ToHandle(fs, p[0:len(p)-1])
-			if err := xdr.Write(writer, uint64(binary.BigEndian.Uint64(ph[0:8]))); err != nil { //fileID
-				return &NFSStatusError{NFSStatusServerFault, err}
-			}
-		} else {
-			if err := xdr.Write(writer, uint64(0)); err != nil { //fileID
+	if len(entities) > 0 {
+		entities[len(entities)-1].Next = false
+		// no next for last entity
+
+		for _, e := range entities {
+			if err := xdr.Write(writer, e); err != nil {
 				return &NFSStatusError{NFSStatusServerFault, err}
 			}
 		}
-		if err := xdr.Write(writer, []byte("..")); err != nil { //name
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		if err := xdr.Write(writer, uint64(1)); err != nil { // cookie
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-		next := 1
-		if len(entities) == 0 {
-			next = 0
-		}
-		if err := xdr.Write(writer, uint32(next)); err != nil { // next
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
 	}
-	if len(entities) > 0 {
-		entities[len(entities)-1].Next = 0
-		// the 'yes there is a 1st entity' bool
-	}
-	for _, e := range entities {
-		if err := xdr.Write(writer, e); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-	}
-	if started || len(entities) == 0 {
-		if err := xdr.Write(writer, uint32(1)); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
-	} else {
-		if err := xdr.Write(writer, uint32(0)); err != nil {
-			return &NFSStatusError{NFSStatusServerFault, err}
-		}
+	if err := xdr.Write(writer, eof); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	// TODO: track writer size at this point to validate maxcount estimation and stop early if needed.
 

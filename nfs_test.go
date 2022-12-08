@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-billy/v5/memfs"
 	nfsc "github.com/willscott/go-nfs-client/nfs"
 	rpc "github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 func TestNFS(t *testing.T) {
@@ -105,20 +106,154 @@ func TestNFS(t *testing.T) {
 		f.Close()
 	}
 
-	entities, err := target.ReadDirPlus("/")
+	manyEntitiesPlus, err := target.ReadDirPlus("/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actualBeNames := []string{}
-	for _, e := range entities {
-		actualBeNames = append(actualBeNames, e.Name())
+	actualBeNamesPlus := []string{}
+	for _, e := range manyEntitiesPlus {
+		actualBeNamesPlus = append(actualBeNamesPlus, e.Name())
 	}
 
 	as := sort.StringSlice(shouldBeNames)
-	bs := sort.StringSlice(actualBeNames)
+	bs := sort.StringSlice(actualBeNamesPlus)
 	as.Sort()
 	bs.Sort()
 	if !reflect.DeepEqual(as, bs) {
 		t.Fatal("nfs.ReadDirPlus error")
 	}
+
+	// for test nfs.ReadDir in case of many files
+	manyEntities, err := readDir(target, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualBeNames := []string{}
+	for _, e := range manyEntities {
+		actualBeNames = append(actualBeNames, e.FileName)
+	}
+
+	as2 := sort.StringSlice(shouldBeNames)
+	bs2 := sort.StringSlice(actualBeNames)
+	as2.Sort()
+	bs2.Sort()
+	if !reflect.DeepEqual(as2, bs2) {
+		t.Fatal("nfs.ReadDir error")
+	}
+
+	// for test nfs.ReadDirPlus in case of empty directory
+	_, err = target.Mkdir("/empty", 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyEntitiesPlus, err := target.ReadDirPlus("/empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emptyEntitiesPlus) != 2 || emptyEntitiesPlus[0].Name() != "." || emptyEntitiesPlus[1].Name() != ".." {
+		t.Fatal("nfs.ReadDirPlus error reading empty dir")
+	}
+
+	// for test nfs.ReadDir in case of empty directory
+	emptyEntities, err := readDir(target, "/empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emptyEntities) != 2 || emptyEntities[0].FileName != "." || emptyEntities[1].FileName != ".." {
+		t.Fatal("nfs.ReadDir error reading empty dir")
+	}
+}
+
+type readDirEntry struct {
+	FileId   uint64
+	FileName string
+	Cookie   uint64
+}
+
+// readDir implementation "appropriated" from go-nfs-client implementation of READDIRPLUS
+func readDir(target *nfsc.Target, dir string) ([]*readDirEntry, error) {
+	_, fh, err := target.Lookup(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	type readDirArgs struct {
+		rpc.Header
+		Handle      []byte
+		Cookie      uint64
+		CookieVerif uint64
+		Count       uint32
+	}
+
+	type readDirList struct {
+		IsSet bool         `xdr:"union"`
+		Entry readDirEntry `xdr:"unioncase=1"`
+	}
+
+	type readDirListOK struct {
+		DirAttrs   nfsc.PostOpAttr
+		CookieVerf uint64
+	}
+
+	cookie := uint64(0)
+	cookieVerf := uint64(0)
+	eof := false
+
+	var entries []*readDirEntry
+	for !eof {
+		res, err := target.Call(&readDirArgs{
+			Header: rpc.Header{
+				Rpcvers: 2,
+				Vers:    nfsc.Nfs3Vers,
+				Prog:    nfsc.Nfs3Prog,
+				Proc:    uint32(nfs.NFSProcedureReadDir),
+				Cred:    rpc.AuthNull,
+				Verf:    rpc.AuthNull,
+			},
+			Handle:      fh,
+			Cookie:      cookie,
+			CookieVerif: cookieVerf,
+			Count:       4096,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		status, err := xdr.ReadUint32(res)
+		if err != nil {
+			return nil, err
+		}
+
+		if err = nfsc.NFS3Error(status); err != nil {
+			return nil, err
+		}
+
+		dirListOK := new(readDirListOK)
+		if err = xdr.Read(res, dirListOK); err != nil {
+			return nil, err
+		}
+
+		for {
+			var item readDirList
+			if err = xdr.Read(res, &item); err != nil {
+				return nil, err
+			}
+
+			if !item.IsSet {
+				break
+			}
+
+			cookie = item.Entry.Cookie
+			entries = append(entries, &item.Entry)
+		}
+
+		if err = xdr.Read(res, &eof); err != nil {
+			return nil, err
+		}
+
+		cookieVerf = dirListOK.CookieVerf
+	}
+
+	return entries, nil
 }
