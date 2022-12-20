@@ -139,7 +139,9 @@ func getDirListingWithVerifier(userHandle Handler, fsHandle []byte, verifier uin
 	// see if the verifier has this dir cached:
 	if vh, ok := userHandle.(CachingHandler); verifier != 0 && ok {
 		entries := vh.DataForVerifier(path, verifier)
-		return entries, verifier, nil
+		if entries != nil {
+			return entries, verifier, nil
+		}
 	}
 	// load the entries.
 	contents, err := fs.ReadDir(path)
