@@ -35,6 +35,6 @@ type Handler interface {
 type CachingHandler interface {
 	VerifierFor(path string, contents []fs.FileInfo) uint64
 
-	// fs.FileInfo needs to be sorted by Name()
+	// fs.FileInfo needs to be sorted by Name(), nil in case of a cache-miss
 	DataForVerifier(path string, verifier uint64) []fs.FileInfo
 }
