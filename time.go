@@ -15,7 +15,7 @@ type FileTime struct {
 func ToNFSTime(t time.Time) FileTime {
 	return FileTime{
 		Seconds:  uint32(t.Unix()),
-		Nseconds: uint32(t.UnixNano()) % uint32(time.Second),
+		Nseconds: uint32(t.UnixNano() % int64(time.Second)),
 	}
 }
 
