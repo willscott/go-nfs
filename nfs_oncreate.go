@@ -3,7 +3,6 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"log"
 	"os"
 
 	"github.com/go-git/go-billy/v5"
@@ -40,7 +39,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Read(w.req.Body, &verf); err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
-		log.Printf("failing create to indicate lack of support for 'exclusive' mode.")
+		Log.Errorf("failing create to indicate lack of support for 'exclusive' mode.")
 		// TODO: support 'exclusive' mode.
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 	} else {
@@ -78,18 +77,18 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	file, err := fs.Create(newFilePath)
 	if err != nil {
-		log.Printf("Error Creating: %v", err)
+		Log.Errorf("Error Creating: %v", err)
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 	if err := file.Close(); err != nil {
-		log.Printf("Error Creating: %v", err)
+		Log.Errorf("Error Creating: %v", err)
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
 	fp := userHandle.ToHandle(fs, append(path, file.Name()))
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-		log.Printf("Error applying attributes: %v\n", err)
+		Log.Errorf("Error applying attributes: %v\n", err)
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 
 	xdr2 "github.com/rasky/go-xdr/xdr2"
@@ -60,17 +59,17 @@ func (c *conn) serve(ctx context.Context) {
 			}
 			return
 		}
-		log.Printf("request: %v", w.req)
+		Log.Tracef("request: %v", w.req)
 		err = c.handle(connCtx, w)
 		respErr := w.finish(connCtx)
 		if err != nil {
-			log.Printf("error handling req: %v", err)
+			Log.Errorf("error handling req: %v", err)
 			// failure to handle at a level needing to close the connection.
 			c.Close()
 			return
 		}
 		if respErr != nil {
-			log.Printf("error sending response: %v", respErr)
+			Log.Errorf("error sending response: %v", respErr)
 			c.Close()
 			return
 		}
@@ -117,7 +116,7 @@ func (c *conn) serializeWrites(ctx context.Context) {
 func (c *conn) handle(ctx context.Context, w *response) error {
 	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
 	if handler == nil {
-		log.Printf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)
+		Log.Errorf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)
 		if err := w.drain(ctx); err != nil {
 			return err
 		}
@@ -128,13 +127,13 @@ func (c *conn) handle(ctx context.Context, w *response) error {
 		return drainErr
 	}
 	if appError != nil && !w.responded {
-		log.Printf("call to %+v failed: %v", handler, appError)
+		Log.Errorf("call to %+v failed: %v", handler, appError)
 		if err := c.err(ctx, w, appError); err != nil {
 			return err
 		}
 	}
 	if !w.responded {
-		log.Printf("Handler did not indicate response status via writing or erroring")
+		Log.Errorf("Handler did not indicate response status via writing or erroring")
 		if err := c.err(ctx, w, &ResponseCodeSystemError{}); err != nil {
 			return err
 		}
@@ -288,7 +287,7 @@ func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *
 		return nil, err
 	}
 	if fragment&(1<<31) == 0 {
-		log.Printf("Warning: haven't implemented fragment reconstruction.\n")
+		Log.Warnf("Warning: haven't implemented fragment reconstruction.\n")
 		return nil, ErrInputInvalid
 	}
 	reqLen := fragment - uint32(1<<31)
