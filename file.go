@@ -3,7 +3,6 @@ package nfs
 import (
 	"errors"
 	"io"
-	"log"
 	"math"
 	"os"
 	"time"
@@ -131,7 +130,7 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
 	attrs, err := fs.Stat(fs.Join(path...))
 	if err != nil || attrs == nil {
-		log.Printf("err loading attrs for %s: %v", fs.Join(path...), err)
+		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
 	}
 	return ToFileAttribute(attrs)

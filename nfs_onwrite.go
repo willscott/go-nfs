@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
 	"math"
 	"os"
 
@@ -79,11 +78,11 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 	writtenCount, err := file.Write(req.Data[:end])
 	if err != nil {
-		log.Printf("Error writing: %v", err)
+		Log.Errorf("Error writing: %v", err)
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 	if err := file.Close(); err != nil {
-		log.Printf("error closing: %v", err)
+		Log.Errorf("error closing: %v", err)
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 
