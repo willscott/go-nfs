@@ -59,7 +59,8 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNameTooLong, nil}
 	}
 
-	newFilePath := fs.Join(append(path, string(obj.Filename))...)
+	newFile := append(path, string(obj.Filename))
+	newFilePath := fs.Join(newFile...)
 	if s, err := fs.Stat(newFilePath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusError{NFSStatusExist, nil}
@@ -85,7 +86,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
 
-	fp := userHandle.ToHandle(fs, append(path, file.Name()))
+	fp := userHandle.ToHandle(fs, newFile)
 	changer := userHandle.Change(fs)
 	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
 		Log.Errorf("Error applying attributes: %v\n", err)
