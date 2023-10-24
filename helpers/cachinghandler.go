@@ -14,18 +14,14 @@ import (
 
 // NewCachingHandler wraps a handler to provide a basic to/from-file handle cache.
 func NewCachingHandler(h nfs.Handler, limit int) nfs.Handler {
-	cache, _ := lru.New[uuid.UUID, entry](limit)
-	verifiers, _ := lru.New[uint64, verifier](limit)
-	return &CachingHandler{
-		Handler:         h,
-		activeHandles:   cache,
-		activeVerifiers: verifiers,
-		cacheLimit:      limit,
-	}
+	return NewCachingHandlerWithVerifierLimit(h, limit, limit)
 }
 
 // NewCachingHandlerWithVerifierLimit provides a basic to/from-file handle cache that can be tuned with a smaller cache of active directory listings.
 func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit int) nfs.Handler {
+	if limit < 2 || verifierLimit < 2 {
+		nfs.Log.Warnf("Caching handler created with insufficient cache to support directory listing", "size", limit, "verifiers", verifierLimit)
+	}
 	cache, _ := lru.New[uuid.UUID, entry](limit)
 	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
 	return &CachingHandler{
