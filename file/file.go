@@ -6,6 +6,8 @@ type FileInfo struct {
 	Nlink uint32
 	UID   uint32
 	GID   uint32
+	Major uint32
+	Minor uint32
 }
 
 // GetInfo extracts some non-standardized items from the result of a Stat call.

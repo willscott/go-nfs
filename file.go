@@ -96,12 +96,8 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 		f.Type = FileTypeLink
 	} else if m&os.ModeCharDevice != 0 {
 		f.Type = FileTypeCharacter
-		// TODO: set major/minor dev number
-		//f.SpecData = 0,0
 	} else if m&os.ModeDevice != 0 {
 		f.Type = FileTypeBlock
-		// TODO: set major/minor dev number
-		//f.SpecData = 0,0
 	} else if m&os.ModeSocket != 0 {
 		f.Type = FileTypeSocket
 	} else if m&os.ModeNamedPipe != 0 {
@@ -116,6 +112,7 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 		f.Nlink = a.Nlink
 		f.UID = a.UID
 		f.GID = a.GID
+		f.SpecData = [2]uint32{a.Major, a.Minor}
 	}
 
 	f.Filesize = uint64(info.Size())
