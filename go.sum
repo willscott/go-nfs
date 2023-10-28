@@ -30,10 +30,8 @@ github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 h1:UVArwN/wkKjMVhh2EQ
 github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93/go.mod h1:Nfe4efndBz4TibWycNE+lqyJZiMX4ycx+QKV8Ta0f/o=
 github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d/go.mod h1:OnSkiWE9lh6wB0YB77sQom3nweQdgAjqCqsofrRNTgc=
 github.com/smartystreets/assertions v1.2.0 h1:42S6lae5dvLc7BrLu/0ugRtcFVjoJNMC/N3yZFZkDFs=
-github.com/smartystreets/assertions v1.2.0/go.mod h1:tcbTF8ujkAEcZ8TElKY+i30BzYlVhC/LOxJk7iOWnoo=
 github.com/smartystreets/goconvey v1.6.4/go.mod h1:syvi0/a8iFYH4r/RixwvyeAJjdLS9QV7WQ/tjFTllLA=
 github.com/smartystreets/goconvey v1.7.2 h1:9RBaZCeXEQ3UselpuwUQHltGVXvdwm6cv1hgR6gDIPg=
-github.com/smartystreets/goconvey v1.7.2/go.mod h1:Vw0tHAZW6lzCRk3xgdin6fKYcG+G3Pg9vgXWeJpQFMM=
 github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e h1:FIB2fi7XJGHIdf5rWNsfFQqatIKxutT45G+wNuMQNgs=
 github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e/go.mod h1:/qe02xr3jvTUz8u/PV0FHGpP8t96OQNP7U9BJMwMLEw=
 github.com/warpfork/go-wish v0.0.0-20200122115046-b9ea61034e4a h1:G++j5e0OC488te356JvdhaM8YS6nMsjLAYF7JxCv07w=
