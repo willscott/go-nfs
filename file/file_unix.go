@@ -18,6 +18,7 @@ func getInfo(info os.FileInfo) *FileInfo {
 		fi.GID = s.Gid
 		fi.Major = unix.Major(uint64(s.Rdev))
 		fi.Minor = unix.Minor(uint64(s.Rdev))
+		fi.Fileid = s.Ino
 		return fi
 	}
 	return nil

@@ -113,6 +113,7 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 		f.UID = a.UID
 		f.GID = a.GID
 		f.SpecData = [2]uint32{a.Major, a.Minor}
+		f.Fileid = a.Fileid
 	}
 
 	f.Filesize = uint64(info.Size())
