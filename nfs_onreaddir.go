@@ -81,8 +81,9 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 				break
 			}
 
+			attrs := ToFileAttribute(c)
 			entities = append(entities, readDirEntity{
-				FileID: 1337, // todo: does this matter?
+				FileID: attrs.Fileid,
 				Name:   []byte(c.Name()),
 				Cookie: cookie,
 				Next:   true,
