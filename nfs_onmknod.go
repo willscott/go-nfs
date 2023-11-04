@@ -1,6 +1,7 @@
 package nfs
 
 import (
+	"bytes"
 	"context"
 	"os"
 
@@ -66,6 +67,7 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 	} else if !parent.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
+	fp := userHandle.ToHandle(fs, append(path, string(obj.Filename)))
 
 	switch nfs_ftype(ftype) {
 	case FTYPE_NF3CHR:
@@ -91,10 +93,7 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		if err = attrs.Apply(cu, fs, newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		// fh3
-		// attr
-		// wcc
-		return nil
+
 	case FTYPE_NF3SOCK:
 		// read sattr3
 		attrs, err := ReadSetFileAttributes(w.req.Body)
@@ -107,10 +106,6 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		if err = attrs.Apply(cu, fs, newFilePath); err != nil {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
-		// fh3
-		// attr
-		// wcc
-		return nil
 
 	case FTYPE_NF3FIFO:
 		// read sattr3
@@ -126,15 +121,32 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 			return &NFSStatusError{NFSStatusServerFault, err}
 		}
 
-		// fh3
-		// attr
-		// wcc
-
-		return nil
 	default:
 		return &NFSStatusError{NFSStatusBadType, os.ErrInvalid}
 		// end of input.
 	}
 
-	return &NFSStatusError{NFSStatusInval, os.ErrInvalid}
+	writer := bytes.NewBuffer([]byte{})
+	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+
+	// fh3
+	if err := xdr.Write(writer, fp); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	// attr
+	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, string(obj.Filename)))); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	// wcc
+	if err := WriteWcc(writer, nil, tryStat(fs, path)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+
+	if err := w.Write(writer.Bytes()); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+
+	return nil
 }
