@@ -131,6 +131,10 @@ func onMknod(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
+	// "handle follows"
+	if err := xdr.Write(writer, uint32(1)); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
 	// fh3
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
