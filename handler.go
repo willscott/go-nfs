@@ -15,6 +15,7 @@ type Handler interface {
 	Mount(context.Context, net.Conn, MountRequest) (MountStatus, billy.Filesystem, []AuthFlavor)
 
 	// Change can return 'nil' if filesystem is read-only
+	// If the returned value can be cast to `UnixChange`, mknod and link RPCs will be available.
 	Change(billy.Filesystem) billy.Change
 
 	// Optional methods - generic helpers or trivial implementations can be sufficient depending on use case.
@@ -28,6 +29,15 @@ type Handler interface {
 	FromHandle(fh []byte) (billy.Filesystem, []string, error)
 	// How many handles can be safely maintained by the handler.
 	HandleLimit() int
+}
+
+// UnixChange extends the billy `Change` interface with support for special files.
+type UnixChange interface {
+	billy.Change
+	Mknod(path string, mode uint32, major uint32, minor uint32) error
+	Mkfifo(path string, mode uint32) error
+	Socket(path string) error
+	Link(path string, link string) error
 }
 
 // CachingHandler represents the optional caching work that a user may wish to over-ride with
