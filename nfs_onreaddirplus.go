@@ -92,7 +92,9 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 
 			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
 			attrs := ToFileAttribute(c)
-			attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
+			if attrs.Fileid == 0 {
+				attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
+			}
 			entities = append(entities, readDirPlusEntity{
 				FileID:     attrs.Fileid,
 				Name:       []byte(c.Name()),
