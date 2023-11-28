@@ -9,6 +9,7 @@ import (
 )
 
 func onAccess(ctx context.Context, w *response, userHandle Handler) error {
+	w.errorFmt = opAttrErrorFormatter
 	roothandle, err := xdr.ReadOpaque(w.req.Body)
 	if err != nil {
 		return &NFSStatusError{NFSStatusInval, err}
