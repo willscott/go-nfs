@@ -28,7 +28,8 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNameTooLong, nil}
 	}
 
-	dirInfo, err := fs.Stat(fs.Join(path...))
+	fullPath := fs.Join(path...)
+	dirInfo, err := fs.Stat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -41,7 +42,7 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 	if !dirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
-	preCacheData := ToFileAttribute(dirInfo).AsCache()
+	preCacheData := ToFileAttribute(dirInfo, fullPath).AsCache()
 
 	toDelete := fs.Join(append(path, string(obj.Filename))...)
 

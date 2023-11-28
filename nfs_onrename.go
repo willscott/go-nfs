@@ -43,7 +43,8 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusNameTooLong, os.ErrInvalid}
 	}
 
-	fromDirInfo, err := fs.Stat(fs.Join(fromPath...))
+	fromDirPath := fs.Join(fromPath...)
+	fromDirInfo, err := fs.Stat(fromDirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -53,9 +54,10 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if !fromDirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
-	preCacheData := ToFileAttribute(fromDirInfo).AsCache()
+	preCacheData := ToFileAttribute(fromDirInfo, fromDirPath).AsCache()
 
-	toDirInfo, err := fs.Stat(fs.Join(toPath...))
+	toDirPath := fs.Join(toPath...)
+	toDirInfo, err := fs.Stat(toDirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -65,7 +67,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if !toDirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, nil}
 	}
-	preDestData := ToFileAttribute(toDirInfo).AsCache()
+	preDestData := ToFileAttribute(toDirInfo, toDirPath).AsCache()
 
 	fromLoc := fs.Join(append(fromPath, string(from.Filename))...)
 	toLoc := fs.Join(append(toPath, string(to.Filename))...)

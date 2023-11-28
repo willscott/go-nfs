@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"path"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -90,9 +91,9 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 				break
 			}
 
-			handle := userHandle.ToHandle(fs, joinPath(p, c.Name()))
-			attrs := ToFileAttribute(c)
-			attrs.Fileid = binary.BigEndian.Uint64(handle[0:8])
+			filePath := joinPath(p, c.Name())
+			handle := userHandle.ToHandle(fs, filePath)
+			attrs := ToFileAttribute(c, path.Join(filePath...))
 			entities = append(entities, readDirPlusEntity{
 				FileID:     attrs.Fileid,
 				Name:       []byte(c.Name()),

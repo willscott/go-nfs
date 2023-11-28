@@ -50,7 +50,8 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	// stat first for pre-op wcc.
-	info, err := fs.Stat(fs.Join(path...))
+	fullPath := fs.Join(path...)
+	info, err := fs.Stat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -60,7 +61,7 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if !info.Mode().IsRegular() {
 		return &NFSStatusError{NFSStatusInval, os.ErrInvalid}
 	}
-	preOpCache := ToFileAttribute(info).AsCache()
+	preOpCache := ToFileAttribute(info, fullPath).AsCache()
 
 	// now the actual op.
 	file, err := fs.OpenFile(fs.Join(path...), os.O_RDWR, info.Mode().Perm())
