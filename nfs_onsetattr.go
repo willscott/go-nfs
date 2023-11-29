@@ -25,7 +25,8 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 
-	info, err := fs.Lstat(fs.Join(path...))
+	fullPath := fs.Join(path...)
+	info, err := fs.Lstat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
@@ -42,7 +43,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Read(w.req.Body, &t); err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
-		attr := ToFileAttribute(info)
+		attr := ToFileAttribute(info, fullPath)
 		if t != attr.Ctime {
 			return &NFSStatusError{NFSStatusNotSync, nil}
 		}
@@ -58,7 +59,7 @@ func onSetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return err
 	}
 
-	preAttr := ToFileAttribute(info).AsCache()
+	preAttr := ToFileAttribute(info, fullPath).AsCache()
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {

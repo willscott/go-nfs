@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"sort"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
@@ -81,7 +82,7 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 				break
 			}
 
-			attrs := ToFileAttribute(c)
+			attrs := ToFileAttribute(c, path.Join(append(p, c.Name())...))
 			entities = append(entities, readDirEntity{
 				FileID: attrs.Fileid,
 				Name:   []byte(c.Name()),

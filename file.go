@@ -2,6 +2,7 @@ package nfs
 
 import (
 	"errors"
+	"hash/fnv"
 	"io"
 	"math"
 	"os"
@@ -85,7 +86,7 @@ func (f FileAttribute) AsCache() *FileCacheAttribute {
 }
 
 // ToFileAttribute creates an NFS fattr3 struct from an OS.FileInfo
-func ToFileAttribute(info os.FileInfo) *FileAttribute {
+func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 	f := FileAttribute{}
 
 	m := info.Mode()
@@ -114,6 +115,10 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 		f.GID = a.GID
 		f.SpecData = [2]uint32{a.Major, a.Minor}
 		f.Fileid = a.Fileid
+	} else {
+		hasher := fnv.New64()
+		_, _ = hasher.Write([]byte(filePath))
+		f.Fileid = hasher.Sum64()
 	}
 
 	f.Filesize = uint64(info.Size())
@@ -126,12 +131,13 @@ func ToFileAttribute(info os.FileInfo) *FileAttribute {
 
 // tryStat attempts to create a FileAttribute from a path.
 func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
-	attrs, err := fs.Stat(fs.Join(path...))
+	fullPath := fs.Join(path...)
+	attrs, err := fs.Stat(fullPath)
 	if err != nil || attrs == nil {
 		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
 	}
-	return ToFileAttribute(attrs)
+	return ToFileAttribute(attrs, fullPath)
 }
 
 // WriteWcc writes the `wcc_data` representation of an object.
@@ -202,7 +208,7 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 	} else if err != nil {
 		return nil
 	}
-	curr := ToFileAttribute(curOS)
+	curr := ToFileAttribute(curOS, file)
 
 	if s.SetMode != nil {
 		mode := os.FileMode(*s.SetMode) & os.ModePerm

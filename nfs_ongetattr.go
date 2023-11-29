@@ -19,14 +19,15 @@ func onGetAttr(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
 
-	info, err := fs.Stat(fs.Join(path...))
+	fullPath := fs.Join(path...)
+	info, err := fs.Stat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &NFSStatusError{NFSStatusNoEnt, err}
 		}
 		return &NFSStatusError{NFSStatusIO, err}
 	}
-	attr := ToFileAttribute(info)
+	attr := ToFileAttribute(info, fullPath)
 
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
