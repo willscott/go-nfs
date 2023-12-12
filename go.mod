@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/go-git/go-billy/v5 v5.5.0
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.5.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93
 	github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33
