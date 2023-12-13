@@ -61,11 +61,18 @@ func onReadDir(ctx context.Context, w *response, userHandle Handler) error {
 		// add '.' and '..' to entities
 		dotdotFileID := uint64(0)
 		if len(p) > 0 {
-			ph := userHandle.ToHandle(fs, p[0:len(p)-1])
-			dotdotFileID = binary.BigEndian.Uint64(ph[0:8])
+			dda := tryStat(fs, p[0:len(p)-1])
+			if dda != nil {
+				dotdotFileID = dda.Fileid
+			}
+		}
+		dotFileID := uint64(0)
+		da := tryStat(fs, p)
+		if da != nil {
+			dotFileID = da.Fileid
 		}
 		entities = append(entities,
-			readDirEntity{Name: []byte("."), Cookie: 0, Next: true, FileID: binary.BigEndian.Uint64(obj.Handle[0:8])},
+			readDirEntity{Name: []byte("."), Cookie: 0, Next: true, FileID: dotFileID},
 			readDirEntity{Name: []byte(".."), Cookie: 1, Next: true, FileID: dotdotFileID},
 		)
 	}
