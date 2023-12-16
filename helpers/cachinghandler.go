@@ -50,7 +50,11 @@ type entry struct {
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 	id := uuid.New()
-	c.activeHandles.Add(id, entry{f, path})
+	
+	newPath:=make([]string,len(path))
+	
+	copy(newPath,path)
+	c.activeHandles.Add(id, entry{f, newPath})
 	b, _ := id.MarshalBinary()
 	return b
 }
@@ -70,7 +74,9 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 			}
 		}
 		if ok {
-			return f.f, f.p, nil
+			newP:=make([]string,len(f.p))
+			copy(newP,f.p)
+			return f.f, newP, nil
 		}
 	}
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
