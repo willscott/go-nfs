@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"os"
-
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 var doubleWccErrorBody = [16]byte{}
+
+type Compare interface{
+	Equal(a any) bool
+}
 
 func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	w.errorFmt = errFormatterWithBody(doubleWccErrorBody[:])
@@ -31,7 +34,22 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if fs != fs2 {
+	
+	
+	equal:=false
+	
+	if compare, ok:=fs.(Compare); ok{
+		if _, ok:=fs2.(Compare); ok{
+			equal=compare.Equal(fs2)
+		}else{
+			equal=false
+		}
+	}else{
+		equal=(fs==fs2)
+	}
+		
+	
+	if !equal {
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 	}
 
