@@ -11,7 +11,7 @@ import (
 var doubleWccErrorBody = [16]byte{}
 
 type Compare interface{
-	Equal(a any) bool
+	IsEqual(a any) bool
 }
 
 func onRename(ctx context.Context, w *response, userHandle Handler) error {
@@ -40,7 +40,7 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	
 	if compare, ok:=fs.(Compare); ok{
 		if _, ok:=fs2.(Compare); ok{
-			equal=compare.Equal(fs2)
+			equal=compare.IsEqual(fs2)
 		}else{
 			equal=false
 		}
