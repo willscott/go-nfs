@@ -31,7 +31,18 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	if fs != fs2 {
+	// check 2 fs are 'same'
+	fr1, err := fs.Stat("/")
+	if err != nil {
+		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
+
+	}
+	fr2, err := fs2.Stat("/")
+	if err != nil {
+		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
+	}
+
+	if fr1 != fr2 {
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 	}
 
