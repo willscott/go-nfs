@@ -172,7 +172,11 @@ type NFSStatusError struct {
 
 // Error is The wrapped error
 func (s *NFSStatusError) Error() string {
-	return s.NFSStatus.String()
+	message := s.NFSStatus.String()
+	if s.WrappedErr != nil {
+		message = fmt.Sprintf("%s: %v", message, s.WrappedErr)
+	}
+	return message
 }
 
 // Code for NFS issues are successful RPC responses
