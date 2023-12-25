@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"reflect"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
@@ -31,18 +32,8 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	// check 2 fs are 'same'
-	fr1, err := fs.Stat("/")
-	if err != nil {
-		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
-
-	}
-	fr2, err := fs2.Stat("/")
-	if err != nil {
-		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
-	}
-
-	if fr1 != fr2 {
+	// check the two fs are the same
+	if !reflect.DeepEqual(fs, fs2) {
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
 	}
 
