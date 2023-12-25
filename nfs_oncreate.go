@@ -105,7 +105,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 	if err := xdr.Write(writer, fp); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
-	if err := WritePostOpAttrs(writer, tryStat(fs, append(path, file.Name()))); err != nil {
+	if err := WritePostOpAttrs(writer, tryStat(fs, []string{file.Name()})); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
