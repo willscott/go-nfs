@@ -4,7 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io/fs"
-
+	"reflect"
+	
 	"github.com/willscott/go-nfs"
 
 	"github.com/go-git/go-billy/v5"
@@ -24,11 +25,13 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 	}
 	cache, _ := lru.New[uuid.UUID, entry](limit)
 	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
+	reverseCache:= make(map[string][][2]any)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
 		activeVerifiers: verifiers,
 		cacheLimit:      limit,
+		reverseCache: reverseCache,
 	}
 }
 
@@ -38,6 +41,8 @@ type CachingHandler struct {
 	activeHandles   *lru.Cache[uuid.UUID, entry]
 	activeVerifiers *lru.Cache[uint64, verifier]
 	cacheLimit      int
+	reverseCache map[string][][2]any
+	
 }
 
 type entry struct {
@@ -49,6 +54,19 @@ type entry struct {
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
+	joinedPath:=f.Join(path...)
+	pathToKey, exists := c.reverseCache[joinedPath]
+	if exists{
+	    for _, arr := range pathToKey{
+		    if reflect.DeepEqual(f,arr[0]){
+			    result,_:=arr[1].([]byte)
+			    return result
+		    }
+	   }
+	}else{
+	   c.reverseCache[joinedPath]=make([][2]any,0)
+	}
+	
 	id := uuid.New()
 	
 	newPath:=make([]string,len(path))
@@ -56,6 +74,8 @@ func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 	copy(newPath,path)
 	c.activeHandles.Add(id, entry{f, newPath})
 	b, _ := id.MarshalBinary()
+	c.reverseCache[joinedPath]=append(c.reverseCache[joinedPath],[2]any{f,b})
+	
 	return b
 }
 
