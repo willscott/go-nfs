@@ -121,25 +121,6 @@ func (c *CachingHandler) searchReverseCache (f billy.Filesystem, path []string) 
    return	
 }
 
-func (c *CachingHandler) UpdateHandle( fs billy.Filesystem, fs2 billy.Filesystem, oldPath []string, newPath []string){
-	handle,_,err:=c.searchReverseCache(fs,oldPath)
-	if err!=nil{
-		return
-	}
-	
-	fs, oldPath, err = c.FromHandle(handle) //Normalize to what is in the cache(s)
-	if err != nil{
-		return
-	}
-	
-	c.InvalidateHandle(fs,oldPath) //The oldPath no longer exists in fs
-	
-	//Associate the handle with the newPath
-	id, _ := uuid.FromBytes(handle)
-	c.activeHandles.Add(id,entry{fs2,newPath})
-	c.reverseCache[fs2.Join(newPath...)]=append(c.reverseCache[fs2.Join(newPath...)],[2]any{fs2,handle})
-}
-
 func (c *CachingHandler) InvalidateHandle( fs billy.Filesystem, path []string){
 	handle, i, err := c.searchReverseCache(fs,path)
 	if err!=nil{

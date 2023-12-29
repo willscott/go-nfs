@@ -49,9 +49,6 @@ func (h *NullAuthHandler) FromHandle([]byte) (billy.Filesystem, []string, error)
 	return nil, []string{}, nil
 }
 
-func (c *NullAuthHandler) UpdateHandle( billy.Filesystem, billy.Filesystem, []string, []string){
-}
-
 func (c *NullAuthHandler) InvalidateHandle( billy.Filesystem, []string){
 }
 
