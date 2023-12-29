@@ -147,7 +147,7 @@ func (c *CachingHandler) InvalidateHandle( fs billy.Filesystem, path []string){
 	}
 	
 	//Remove from reverseCache
-	joinedPath:=fs.Join(path)
+	joinedPath:=fs.Join(path...)
 	arr:=c.reverseCache[joinedPath]
 	arr[i]=arr[len(arr)-1]
 	c.reverseCache[joinedPath]=arr[:len(arr)-1]
