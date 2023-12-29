@@ -55,16 +55,10 @@ type entry struct {
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 	joinedPath:=f.Join(path...)
-	pathToKey, exists := c.reverseCache[joinedPath]
-	if exists{
-	    for _, arr := range pathToKey{
-		    if reflect.DeepEqual(f,arr[0]){
-			    result,_:=arr[1].([]byte)
-			    return result
-		    }
-	   }
-	}else{
-	   c.reverseCache[joinedPath]=make([][2]any,0)
+	
+	handle, _, err :=c.searchReverseCache(f, path)
+	if err==nil{
+		return handle
 	}
 	
 	id := uuid.New()
@@ -100,6 +94,67 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 		}
 	}
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
+}
+
+func (c *CachingHandler) searchReverseCache (f billy.Filesystem, path []string) (handle []byte, idx int, err error){
+	joinedPath:=f.Join(path...)
+	pathToKey, exists := c.reverseCache[joinedPath]
+
+	handle=make([]byte,0)
+	err=fs.ErrInvalid
+	idx = -1
+	
+	if !exists{
+		c.reverseCache[joinedPath]=make([][2]any,0)
+		return
+	}
+	
+   for i, arr := range pathToKey{
+		if reflect.DeepEqual(f,arr[0]){
+			handle,_=arr[1].([]byte)
+			idx=i
+			err=nil
+			return
+		}
+   }
+   
+   return	
+}
+
+func (c *CachingHandler) UpdateHandle( fs billy.Filesystem, fs2 billy.Filesystem, oldPath []string, newPath []string){
+	handle,_,err:=c.searchReverseCache(fs,oldPath)
+	if err!=nil{
+		return
+	}
+	
+	fs, oldPath, err = c.FromHandle(handle) //Normalize to what is in the cache(s)
+	if err != nil{
+		return
+	}
+	
+	c.InvalidateHandle(fs,oldPath) //The oldPath no longer exists in fs
+	
+	//Associate the handle with the newPath
+	id, _ := uuid.FromBytes(handle)
+	c.activeHandles.Add(id,entry{fs2,newPath})
+	c.reverseCache[fs2.Join(newPath...)]=append(c.reverseCache[fs2.Join(newPath...)],[2]any{fs2,handle})
+}
+
+func (c *CachingHandler) InvalidateHandle( fs billy.Filesystem, path []string){
+	handle, i, err := c.searchReverseCache(fs,path)
+	if err!=nil{
+		return
+	}
+	
+	//Remove from reverseCache
+	joinedPath:=fs.Join(path)
+	arr:=c.reverseCache[joinedPath]
+	arr[i]=arr[len(arr)-1]
+	c.reverseCache[joinedPath]=arr[:len(arr)-1]
+	
+	//Remove from cache
+	id, _ := uuid.FromBytes(handle)
+	c.activeHandles.Remove(id)
 }
 
 // HandleLimit exports how many file handles can be safely stored by this cache.

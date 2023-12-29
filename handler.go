@@ -27,6 +27,9 @@ type Handler interface {
 	// Can be safely implemented via helpers/cachinghandler.
 	ToHandle(fs billy.Filesystem, path []string) []byte
 	FromHandle(fh []byte) (billy.Filesystem, []string, error)
+	UpdateHandle( billy.Filesystem, billy.Filesystem, []string, []string)
+	InvalidateHandle( billy.Filesystem, []string)
+	
 	// How many handles can be safely maintained by the handler.
 	HandleLimit() int
 }

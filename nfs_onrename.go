@@ -84,7 +84,19 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		return &NFSStatusError{NFSStatusIO, err}
 	}
-
+	
+	fromPathCopy:=make([]string,len(fromPath))
+	copy(fromPathCopy,fromPath)
+	
+	if false{ //Just in case a non-compliant client assumes that a Rename does not invalidate any handles
+		toPathCopy:=make([]string,len(toPath))
+		copy(toPathCopy,toPath)
+	
+		userHandle.UpdateHandle(fs, fs2, append(fromPathCopy, string(from.Filename)), append(toPathCopy, string(to.Filename)))
+	}else{
+		userHandle.InvalidateHandle(fs, append(fromPathCopy, string(from.Filename)))
+	}
+	
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
