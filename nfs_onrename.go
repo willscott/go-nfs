@@ -84,11 +84,9 @@ func onRename(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		return &NFSStatusError{NFSStatusIO, err}
 	}
-	
-	fromPathCopy:=make([]string,len(fromPath))
-	copy(fromPathCopy,fromPath)
-	userHandle.InvalidateHandle(fs, append(fromPathCopy, string(from.Filename)))
-	
+
+	userHandle.InvalidateHandle(fs, from.Handle)
+
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}

@@ -49,7 +49,8 @@ func (h *NullAuthHandler) FromHandle([]byte) (billy.Filesystem, []string, error)
 	return nil, []string{}, nil
 }
 
-func (c *NullAuthHandler) InvalidateHandle( billy.Filesystem, []string){
+func (c *NullAuthHandler) InvalidateHandle(billy.Filesystem, []byte) error {
+	return nil
 }
 
 // HandleLImit handled by cachingHandler

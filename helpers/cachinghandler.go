@@ -4,8 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io/fs"
-	"reflect"
-	
+
 	"github.com/willscott/go-nfs"
 
 	"github.com/go-git/go-billy/v5"
@@ -25,13 +24,11 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 	}
 	cache, _ := lru.New[uuid.UUID, entry](limit)
 	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
-	reverseCache:= make(map[string][][2]any)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
 		activeVerifiers: verifiers,
 		cacheLimit:      limit,
-		reverseCache: reverseCache,
 	}
 }
 
@@ -41,8 +38,6 @@ type CachingHandler struct {
 	activeHandles   *lru.Cache[uuid.UUID, entry]
 	activeVerifiers *lru.Cache[uint64, verifier]
 	cacheLimit      int
-	reverseCache map[string][][2]any
-	
 }
 
 type entry struct {
@@ -54,22 +49,14 @@ type entry struct {
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
-	joinedPath:=f.Join(path...)
-	
-	handle, _, err :=c.searchReverseCache(f, path)
-	if err==nil{
-		return handle
-	}
-	
 	id := uuid.New()
-	
-	newPath:=make([]string,len(path))
-	
-	copy(newPath,path)
+
+	newPath := make([]string, len(path))
+
+	copy(newPath, path)
 	c.activeHandles.Add(id, entry{f, newPath})
 	b, _ := id.MarshalBinary()
-	c.reverseCache[joinedPath]=append(c.reverseCache[joinedPath],[2]any{f,b})
-	
+
 	return b
 }
 
@@ -88,54 +75,19 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 			}
 		}
 		if ok {
-			newP:=make([]string,len(f.p))
-			copy(newP,f.p)
+			newP := make([]string, len(f.p))
+			copy(newP, f.p)
 			return f.f, newP, nil
 		}
 	}
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
 }
 
-func (c *CachingHandler) searchReverseCache (f billy.Filesystem, path []string) (handle []byte, idx int, err error){
-	joinedPath:=f.Join(path...)
-	pathToKey, exists := c.reverseCache[joinedPath]
-
-	handle=make([]byte,0)
-	err=fs.ErrInvalid
-	idx = -1
-	
-	if !exists{
-		c.reverseCache[joinedPath]=make([][2]any,0)
-		return
-	}
-	
-   for i, arr := range pathToKey{
-		if reflect.DeepEqual(f,arr[0]){
-			handle,_=arr[1].([]byte)
-			idx=i
-			err=nil
-			return
-		}
-   }
-   
-   return	
-}
-
-func (c *CachingHandler) InvalidateHandle( fs billy.Filesystem, path []string){
-	handle, i, err := c.searchReverseCache(fs,path)
-	if err!=nil{
-		return
-	}
-	
-	//Remove from reverseCache
-	joinedPath:=fs.Join(path...)
-	arr:=c.reverseCache[joinedPath]
-	arr[i]=arr[len(arr)-1]
-	c.reverseCache[joinedPath]=arr[:len(arr)-1]
-	
+func (c *CachingHandler) InvalidateHandle(fs billy.Filesystem, handle []byte) error {
 	//Remove from cache
 	id, _ := uuid.FromBytes(handle)
 	c.activeHandles.Remove(id)
+	return nil
 }
 
 // HandleLimit exports how many file handles can be safely stored by this cache.
