@@ -14,6 +14,8 @@ type Handler interface {
 
 	Mount(context.Context, net.Conn, MountRequest) (MountStatus, billy.Filesystem, []AuthFlavor)
 
+	Unmount(_ context.Context, _ net.Conn, dirpath []byte) error
+
 	// Change can return 'nil' if filesystem is read-only
 	// If the returned value can be cast to `UnixChange`, mknod and link RPCs will be available.
 	Change(billy.Filesystem) billy.Change
