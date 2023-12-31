@@ -132,7 +132,7 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 // tryStat attempts to create a FileAttribute from a path.
 func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
 	fullPath := fs.Join(path...)
-	attrs, err := fs.Stat(fullPath)
+	attrs, err := fs.Lstat(fullPath)
 	if err != nil || attrs == nil {
 		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
