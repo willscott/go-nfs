@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io/fs"
+	"reflect"
 
 	"github.com/willscott/go-nfs"
 
@@ -23,10 +24,12 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 		nfs.Log.Warnf("Caching handler created with insufficient cache to support directory listing", "size", limit, "verifiers", verifierLimit)
 	}
 	cache, _ := lru.New[uuid.UUID, entry](limit)
+	reverseCache := make(map[string][]uuid.UUID)
 	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
+		reverseHandles:  reverseCache,
 		activeVerifiers: verifiers,
 		cacheLimit:      limit,
 	}
@@ -36,6 +39,7 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 type CachingHandler struct {
 	nfs.Handler
 	activeHandles   *lru.Cache[uuid.UUID, entry]
+	reverseHandles  map[string][]uuid.UUID
 	activeVerifiers *lru.Cache[uint64, verifier]
 	cacheLimit      int
 }
@@ -49,12 +53,27 @@ type entry struct {
 // In stateless nfs (when it's serving a unix fs) this can be the device + inode
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
+	joinedPath := f.Join(path...)
+
+	if handle := c.searchReverseCache(f, joinedPath); handle != nil {
+		return handle
+	}
+
 	id := uuid.New()
 
 	newPath := make([]string, len(path))
 
 	copy(newPath, path)
-	c.activeHandles.Add(id, entry{f, newPath})
+	evictedKey, evictedPath, ok := c.activeHandles.GetOldest()
+	if evicted := c.activeHandles.Add(id, entry{f, newPath}); evicted && ok {
+		rk := evictedPath.f.Join(evictedPath.p...)
+		c.evictReverseCache(rk, evictedKey)
+	}
+
+	if _, ok := c.reverseHandles[joinedPath]; !ok {
+		c.reverseHandles[joinedPath] = []uuid.UUID{}
+	}
+	c.reverseHandles[joinedPath] = append(c.reverseHandles[joinedPath], id)
 	b, _ := id.MarshalBinary()
 
 	return b
@@ -83,9 +102,47 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
 }
 
+func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []byte {
+	uuids, exists := c.reverseHandles[path]
+
+	if !exists {
+		return nil
+	}
+
+	for _, id := range uuids {
+		if candidate, ok := c.activeHandles.Get(id); ok {
+			if reflect.DeepEqual(candidate.f, f) {
+				return id[:]
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *CachingHandler) evictReverseCache(path string, handle uuid.UUID) {
+	uuids, exists := c.reverseHandles[path]
+
+	if !exists {
+		return
+	}
+	for i, u := range uuids {
+		if u == handle {
+			uuids = append(uuids[:i], uuids[i+1:]...)
+			c.reverseHandles[path] = uuids
+			return
+		}
+	}
+}
+
 func (c *CachingHandler) InvalidateHandle(fs billy.Filesystem, handle []byte) error {
 	//Remove from cache
 	id, _ := uuid.FromBytes(handle)
+	entry, ok := c.activeHandles.Get(id)
+	if ok {
+		rk := entry.f.Join(entry.p...)
+		c.evictReverseCache(rk, id)
+	}
 	c.activeHandles.Remove(id)
 	return nil
 }
