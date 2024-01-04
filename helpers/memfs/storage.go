@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,7 +51,9 @@ func (s *storage) New(path string, mode os.FileMode, flag int) (*file, error) {
 	}
 
 	s.files[path] = f
-	s.createParent(path, mode, f)
+	if err := s.createParent(path, mode, f); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
@@ -114,7 +117,7 @@ func (s *storage) Rename(from, to string) error {
 	move := [][2]string{{from, to}}
 
 	for pathFrom := range s.files {
-		if pathFrom == from || !filepath.HasPrefix(pathFrom, from) {
+		if pathFrom == from || !strings.HasPrefix(pathFrom, from) {
 			continue
 		}
 
