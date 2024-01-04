@@ -10,14 +10,19 @@ import (
 
 	nfs "github.com/willscott/go-nfs"
 	"github.com/willscott/go-nfs/helpers"
+	"github.com/willscott/go-nfs/helpers/memfs"
 
-	"github.com/go-git/go-billy/v5/memfs"
 	nfsc "github.com/willscott/go-nfs-client/nfs"
 	rpc "github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/util"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 func TestNFS(t *testing.T) {
+	if testing.Verbose() {
+		util.DefaultLogger.SetDebug(true)
+	}
+
 	// make an empty in-memory server.
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -34,7 +39,7 @@ func TestNFS(t *testing.T) {
 		_ = nfs.Serve(listener, cacheHelper)
 	}()
 
-	c, err := rpc.DialTCP(listener.Addr().Network(), nil, listener.Addr().(*net.TCPAddr).String())
+	c, err := rpc.DialTCP(listener.Addr().Network(), listener.Addr().(*net.TCPAddr).String(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,12 +97,12 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shouldBeNames := []string{".", ".."}
+	shouldBeNames := []string{}
 	for _, f := range dirF1 {
 		shouldBeNames = append(shouldBeNames, f.Name())
 	}
-	for i := 0; i < 100; i++ {
-		fName := fmt.Sprintf("f-%03d.txt", i)
+	for i := 0; i < 2000; i++ {
+		fName := fmt.Sprintf("f-%04d.txt", i)
 		shouldBeNames = append(shouldBeNames, fName)
 		f, err := mem.Create(fName)
 		if err != nil {
@@ -138,7 +143,30 @@ func TestNFS(t *testing.T) {
 	as2.Sort()
 	bs2.Sort()
 	if !reflect.DeepEqual(as2, bs2) {
+		fmt.Printf("should be %v\n", as2)
+		fmt.Printf("actual be %v\n", bs2)
 		t.Fatal("nfs.ReadDir error")
+	}
+
+	// confirm rename works as expected
+	oldFA, _, err := target.Lookup("/f-0010.txt", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := target.Rename("/f-0010.txt", "/g-0010.txt"); err != nil {
+		t.Fatal(err)
+	}
+	new, _, err := target.Lookup("/g-0010.txt", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if new.Sys() != oldFA.Sys() {
+		t.Fatal("rename failed to update")
+	}
+	_, _, err = target.Lookup("/f-0010.txt", false)
+	if err == nil {
+		t.Fatal("old handle should be invalid")
 	}
 
 	// for test nfs.ReadDirPlus in case of empty directory
@@ -151,7 +179,7 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(emptyEntitiesPlus) != 2 || emptyEntitiesPlus[0].Name() != "." || emptyEntitiesPlus[1].Name() != ".." {
+	if len(emptyEntitiesPlus) != 0 {
 		t.Fatal("nfs.ReadDirPlus error reading empty dir")
 	}
 
@@ -160,7 +188,7 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(emptyEntities) != 2 || emptyEntities[0].FileName != "." || emptyEntities[1].FileName != ".." {
+	if len(emptyEntities) != 0 {
 		t.Fatal("nfs.ReadDir error reading empty dir")
 	}
 }
@@ -245,6 +273,9 @@ func readDir(target *nfsc.Target, dir string) ([]*readDirEntry, error) {
 			}
 
 			cookie = item.Entry.Cookie
+			if item.Entry.FileName == "." || item.Entry.FileName == ".." {
+				continue
+			}
 			entries = append(entries, &item.Entry)
 		}
 
