@@ -40,11 +40,14 @@ github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e h1:FIB2fi7XJGHI
 github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e/go.mod h1:/qe02xr3jvTUz8u/PV0FHGpP8t96OQNP7U9BJMwMLEw=
 github.com/warpfork/go-wish v0.0.0-20200122115046-b9ea61034e4a h1:G++j5e0OC488te356JvdhaM8YS6nMsjLAYF7JxCv07w=
 github.com/warpfork/go-wish v0.0.0-20200122115046-b9ea61034e4a/go.mod h1:x6AKhvSSexNrVSrViXSHUEbICjmGXhtgABaHIySUSGw=
-github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33 h1:Wd8wdpRzPXskyHvZLyw7Wc1fp5oCE2mhBCj7bAiibUs=
-github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33/go.mod h1:cOUKSNty+RabZqKhm5yTJT5Vq/Fe83ZRWAJ5Kj8nRes=
+github.com/willscott/go-nfs-client v0.0.0-20240103141042-dfd9c8c8f5a0 h1:O5rrM8FhTIvB2ZcYZmGH8NCRKP/lMrTbm0BmtctC+P8=
+github.com/willscott/go-nfs-client v0.0.0-20240103141042-dfd9c8c8f5a0/go.mod h1:Tq++Lr/FgiS3X48q5FETemXiSLGuYMQT2sPjYNPJSwA=
+github.com/willscott/go-nfs-client v0.0.0-20240103142856-58d3345adcd2 h1:OmuLQZHleuwzqCLLCQYQStOPirEjE35S04vPajNMQjI=
+github.com/willscott/go-nfs-client v0.0.0-20240103142856-58d3345adcd2/go.mod h1:Tq++Lr/FgiS3X48q5FETemXiSLGuYMQT2sPjYNPJSwA=
+github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00 h1:U0DnHRZFzoIV1oFEZczg5XyPut9yxk9jjtax/9Bxr/o=
+github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00/go.mod h1:Tq++Lr/FgiS3X48q5FETemXiSLGuYMQT2sPjYNPJSwA=
 github.com/willscott/memphis v0.0.0-20210922141505-529d4987ab7e h1:1eHCP4w7tMmpfFBdrd5ff+vYU9THtrtA1yM9f0TLlJw=
 github.com/willscott/memphis v0.0.0-20210922141505-529d4987ab7e/go.mod h1:59vHBW4EpjiL5oiqgCrBp1Tc9JXRzKCNMEOaGmNfSHo=
-github.com/zema1/go-nfs-client v0.0.0-20200604081958-0cf942f0e0fe/go.mod h1:im3CVJ32XM3+E+2RhY0sa5IVJVQehUrX0oE1wX4xOwU=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/net v0.0.0-20190311183353-d8887717615a/go.mod h1:t9HGtf8HONx5eT2rtn7q6eTqICYqUVnKs3thJo3Qplg=
 golang.org/x/net v0.15.0 h1:ugBLEUaxABaB5AJqW9enI0ACdci2RUd4eP51NTBvuJ8=

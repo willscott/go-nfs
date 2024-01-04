@@ -57,6 +57,10 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 
+	if err := userHandle.InvalidateHandle(fs, obj.Handle); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+
 	writer := bytes.NewBuffer([]byte{})
 	if err := xdr.Write(writer, uint32(NFSStatusOk)); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}

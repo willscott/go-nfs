@@ -79,17 +79,21 @@ func onReadDirPlus(ctx context.Context, w *response, userHandle Handler) error {
 			dotFileID = da.Fileid
 		}
 		entities = append(entities,
-			readDirPlusEntity{Name: []byte("."), Cookie: 0, Next: true, FileID: dotFileID},
+			readDirPlusEntity{Name: []byte("."), Cookie: 0, Next: true, FileID: dotFileID, Attributes: da},
 			readDirPlusEntity{Name: []byte(".."), Cookie: 1, Next: true, FileID: dotdotFileID},
 		)
 	}
 
 	eof := true
 	maxEntities := userHandle.HandleLimit() / 2
+	fb := 0
+	fss := 0
 	for i, c := range contents {
 		// cookie equates to index within contents + 2 (for '.' and '..')
 		cookie := uint64(i + 2)
+		fb++
 		if started {
+			fss++
 			dirBytes += uint32(len(c.Name()) + 20)
 			maxBytes += 512 // TODO: better estimation.
 			if dirBytes > obj.DirCount || maxBytes > obj.MaxCount || len(entities) > maxEntities {
