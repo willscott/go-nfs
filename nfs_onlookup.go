@@ -38,8 +38,8 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusStale, err}
 	}
-	contents, err := fs.ReadDir(fs.Join(p...))
-	if err != nil {
+	dirInfo, err := fs.Lstat(fs.Join(p...))
+	if err != nil || !dirInfo.IsDir() {
 		return &NFSStatusError{NFSStatusNotDir, err}
 	}
 
@@ -70,22 +70,18 @@ func onLookup(ctx context.Context, w *response, userHandle Handler) error {
 		return nil
 	}
 
-	// TODO: use sorting rather than linear
-	for _, f := range contents {
-		if bytes.Equal([]byte(f.Name()), obj.Filename) {
-			newPath := append(p, f.Name())
-			newHandle := userHandle.ToHandle(fs, newPath)
-			resp, err := lookupSuccessResponse(newHandle, newPath, p, fs)
-			if err != nil {
-				return &NFSStatusError{NFSStatusServerFault, err}
-			}
-			if err := w.Write(resp); err != nil {
-				return &NFSStatusError{NFSStatusServerFault, err}
-			}
-			return nil
-		}
+	reqPath := append(p, string(obj.Filename))
+	if _, err = fs.Lstat(fs.Join(reqPath...)); err != nil {
+		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
 	}
 
-	Log.Errorf("No file for lookup of %v\n", string(obj.Filename))
-	return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
+	newHandle := userHandle.ToHandle(fs, reqPath)
+	resp, err := lookupSuccessResponse(newHandle, reqPath, p, fs)
+	if err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	if err := w.Write(resp); err != nil {
+		return &NFSStatusError{NFSStatusServerFault, err}
+	}
+	return nil
 }
