@@ -45,6 +45,7 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 	preCacheData := ToFileAttribute(dirInfo, fullPath).AsCache()
 
 	toDelete := fs.Join(append(path, string(obj.Filename))...)
+	toDeleteHandle := userHandle.ToHandle(fs, append(path, string(obj.Filename)))
 
 	err = fs.Remove(toDelete)
 	if err != nil {
@@ -57,7 +58,7 @@ func onRemove(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
 
-	if err := userHandle.InvalidateHandle(fs, obj.Handle); err != nil {
+	if err := userHandle.InvalidateHandle(fs, toDeleteHandle); err != nil {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 
