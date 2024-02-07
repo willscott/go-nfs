@@ -9,7 +9,7 @@ require (
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
 	github.com/willscott/memphis v0.0.0-20210922141505-529d4987ab7e
-	golang.org/x/sys v0.16.0
+	golang.org/x/sys v0.17.0
 )
 
 require (
