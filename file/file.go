@@ -14,8 +14,12 @@ type FileInfo struct {
 // GetInfo extracts some non-standardized items from the result of a Stat call.
 func GetInfo(fi os.FileInfo) *FileInfo {
 	sys := fi.Sys()
-	if v, ok := sys.(*FileInfo); ok {
+	switch v := sys.(type) {
+	case FileInfo:
+		return &v
+	case *FileInfo:
 		return v
+	default:
+		return getOSFileInfo(fi)
 	}
-	return getOSFileInfo(fi)
 }
