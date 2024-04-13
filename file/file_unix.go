@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func getInfo(info os.FileInfo) *FileInfo {
+func getOSFileInfo(info os.FileInfo) *FileInfo {
 	fi := &FileInfo{}
 	if s, ok := info.Sys().(*syscall.Stat_t); ok {
 		fi.Nlink = uint32(s.Nlink)
