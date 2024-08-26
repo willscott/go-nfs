@@ -1,4 +1,4 @@
-//go:build dragonfly || freebsd || linux || nacl || netbsd || openbsd || solaris
+//go:build darwin
 
 package file
 
@@ -19,8 +19,8 @@ func getOSFileInfo(info os.FileInfo) *FileInfo {
 		fi.Major = unix.Major(uint64(s.Rdev))
 		fi.Minor = unix.Minor(uint64(s.Rdev))
 		fi.Fileid = s.Ino
-		fi.Atime = time.Unix(s.Atim.Sec, s.Atim.Nsec)
-		fi.Ctime = time.Unix(s.Ctim.Sec, s.Ctim.Nsec)
+		fi.Atime = time.Unix(s.Atimespec.Sec, s.Atimespec.Nsec)
+		fi.Ctime = time.Unix(s.Ctimespec.Sec, s.Ctimespec.Nsec)
 		return fi
 	}
 	return nil
