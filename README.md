@@ -89,6 +89,8 @@ which do not translate to this abstraction.
   In particular, the `Sys()` escape hatch is queried by this library, and
   if your file system populates a [`syscall.Stat_t`](https://golang.org/pkg/syscall/#Stat_t)
   concrete struct, the ownership specified in that object will be used.
+  You can also return a [`file.FileInfo`](https://github.com/willscott/go-nfs/blob/master/file/file.go#L5)
+  which doesn't vary between platforms so may be easier to deal with.
 
 * Relevant RFCS:
 [5531 - RPC protocol](https://tools.ietf.org/html/rfc5531),
