@@ -3,10 +3,15 @@ package nfs
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"math/rand"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs/file"
 )
 
 const (
@@ -35,13 +40,11 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		attrs = sattr
 	} else if how == createModeExclusive {
 		// read createverf3
-		var verf [8]byte
-		if err := xdr.Read(w.req.Body, &verf); err != nil {
+		var exclusiveVerfier [8]byte
+		if err := xdr.Read(w.req.Body, &exclusiveVerfier); err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
-		Log.Errorf("failing create to indicate lack of support for 'exclusive' mode.")
-		// TODO: support 'exclusive' mode.
-		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
+		attrs = verifierToDurableTimestamps(exclusiveVerfier[:])
 	} else {
 		// invalid
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
@@ -61,12 +64,21 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 
 	newFile := append(path, string(obj.Filename))
 	newFilePath := fs.Join(newFile...)
+	skipCreateAfterExclusiveMatch := false
 	if s, err := fs.Stat(newFilePath); err == nil {
 		if s.IsDir() {
 			return &NFSStatusError{NFSStatusExist, nil}
 		}
 		if how == createModeGuarded {
 			return &NFSStatusError{NFSStatusExist, os.ErrPermission}
+		}
+		if how == createModeExclusive {
+			if timestampsMatch(s, attrs, fs, userHandle, newFilePath) {
+				// no-op.
+				skipCreateAfterExclusiveMatch = true
+			} else {
+				return &NFSStatusError{NFSStatusExist, os.ErrPermission}
+			}
 		}
 	} else {
 		if s, err := fs.Stat(fs.Join(path...)); err != nil {
@@ -76,21 +88,37 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		}
 	}
 
-	file, err := fs.Create(newFilePath)
-	if err != nil {
-		Log.Errorf("Error Creating: %v", err)
-		return &NFSStatusError{NFSStatusAccess, err}
-	}
-	if err := file.Close(); err != nil {
-		Log.Errorf("Error Creating: %v", err)
-		return &NFSStatusError{NFSStatusAccess, err}
+	var file billy.File
+	if !skipCreateAfterExclusiveMatch {
+		file, err = fs.Create(newFilePath)
+		if err != nil {
+			Log.Errorf("Error Creating: %v", err)
+			return &NFSStatusError{NFSStatusAccess, err}
+		}
+		if err := file.Close(); err != nil {
+			Log.Errorf("Error Creating: %v", err)
+			return &NFSStatusError{NFSStatusAccess, err}
+		}
+	} else {
+		file, err = fs.Open(newFilePath)
+		if err != nil {
+			Log.Errorf("Error Opening(for create): %v", err)
+			return &NFSStatusError{NFSStatusAccess, err}
+		}
+		if err := file.Close(); err != nil {
+			Log.Errorf("Error Opening(for create): %v", err)
+			return &NFSStatusError{NFSStatusAccess, err}
+		}
 	}
 
 	fp := userHandle.ToHandle(fs, newFile)
-	changer := userHandle.Change(fs)
-	if err := attrs.Apply(changer, fs, newFilePath); err != nil {
-		Log.Errorf("Error applying attributes: %v\n", err)
-		return &NFSStatusError{NFSStatusIO, err}
+
+	if !skipCreateAfterExclusiveMatch {
+		changer := userHandle.Change(fs)
+		if err := attrs.Apply(changer, fs, newFilePath); err != nil {
+			Log.Errorf("Error applying attributes: %v\n", err)
+			return &NFSStatusError{NFSStatusIO, err}
+		}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
@@ -121,4 +149,60 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusServerFault, err}
 	}
 	return nil
+}
+
+func verifierToDurableTimestamps(verif []byte) *SetFileAttributes {
+	if len(verif) < 8 {
+		Log.Warnf("Requested file attributes from invalid verifier: %v\n", verif)
+		return nil
+	}
+	out := SetFileAttributes{}
+	mTime := binary.BigEndian.Uint32(verif[0:4])
+	mTimeTime := time.Unix(int64(mTime), 0)
+	out.SetMtime = &mTimeTime
+	aTime := binary.BigEndian.Uint32(verif[4:8])
+	aTimeTime := time.Unix(int64(aTime), 0)
+	out.SetMtime = &aTimeTime
+
+	return &out
+}
+
+func timestampsMatch(f os.FileInfo, propose *SetFileAttributes, fs billy.Filesystem, userHandle Handler, creationPath string) bool {
+	// if times are equal, we can return early.
+	if f.ModTime().Equal(*propose.SetMtime) && file.GetInfo(f).Atime.Equal(*propose.SetAtime) {
+		return true
+	}
+
+	// otherwise, make a temp file with the proposed attributes and see if they roundtrip to what we have.
+	tmpFilePath := creationPath + strconv.Itoa(rand.Int())
+	tf, err := fs.Create(tmpFilePath)
+	if err != nil {
+		Log.Warnf("Error creating temp file for create timestamp check: %v", err)
+		return false
+	}
+	if err := tf.Close(); err != nil {
+		Log.Warnf("Error creating temp file for create timestamp check: %v", err)
+		return false
+	}
+	changer := userHandle.Change(fs)
+	if err := propose.Apply(changer, fs, tmpFilePath); err != nil {
+		Log.Warnf("Error applying proposed attributes for timestamp check: %v\n", err)
+		return false
+	}
+
+	// read & compare
+	match := false
+	if s, err := fs.Stat(tmpFilePath); err == nil {
+		if s.ModTime().Equal(f.ModTime()) && file.GetInfo(s).Atime.Equal(file.GetInfo(s).Atime) {
+			match = true
+		}
+	} else {
+		Log.Warnf("Unable to stat temp file for create timestamp check: %v", err)
+	}
+
+	if err := fs.Remove(tmpFilePath); err != nil {
+		Log.Warnf("Error cleaning up temp file for create timestamp check: %v", err)
+	}
+
+	return match
 }

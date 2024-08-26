@@ -115,17 +115,20 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 		f.GID = a.GID
 		f.SpecData = [2]uint32{a.Major, a.Minor}
 		f.Fileid = a.Fileid
+		f.Atime = ToNFSTime(a.Atime)
+		f.Ctime = ToNFSTime(a.Ctime)
 	} else {
 		hasher := fnv.New64()
 		_, _ = hasher.Write([]byte(filePath))
 		f.Fileid = hasher.Sum64()
+		// if we can't get access/change time from info, fall back to mod time.
+		f.Atime = ToNFSTime(info.ModTime())
+		f.Ctime = f.Atime
 	}
 
 	f.Filesize = uint64(info.Size())
 	f.Used = uint64(info.Size())
-	f.Atime = ToNFSTime(info.ModTime())
-	f.Mtime = f.Atime
-	f.Ctime = f.Atime
+	f.Mtime = ToNFSTime(info.ModTime())
 	return &f
 }
 

@@ -1,6 +1,9 @@
 package file
 
-import "os"
+import (
+	"os"
+	"time"
+)
 
 type FileInfo struct {
 	Nlink  uint32
@@ -9,6 +12,8 @@ type FileInfo struct {
 	Major  uint32
 	Minor  uint32
 	Fileid uint64
+	Atime  time.Time
+	Ctime  time.Time
 }
 
 // GetInfo extracts some non-standardized items from the result of a Stat call.
