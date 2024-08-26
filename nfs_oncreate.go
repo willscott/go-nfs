@@ -196,6 +196,11 @@ func timestampsMatch(f os.FileInfo, propose *SetFileAttributes, fs billy.Filesys
 		if s.ModTime().Equal(f.ModTime()) && file.GetInfo(s).Atime.Equal(file.GetInfo(s).Atime) {
 			match = true
 		}
+		// Support the degraded case where atime is not roundtripped. The fallback here is that
+		// the observed atime will be set equal to mtime.
+		if s.ModTime().Equal(f.ModTime()) && file.GetInfo(f).Atime.Equal(f.ModTime()) {
+			match = true
+		}
 	} else {
 		Log.Warnf("Unable to stat temp file for create timestamp check: %v", err)
 	}
