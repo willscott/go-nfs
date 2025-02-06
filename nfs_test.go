@@ -3,11 +3,15 @@ package nfs_test
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 
+	"github.com/go-git/go-billy/v5"
 	nfs "github.com/willscott/go-nfs"
 	"github.com/willscott/go-nfs/helpers"
 	"github.com/willscott/go-nfs/helpers/memfs"
@@ -17,6 +21,75 @@ import (
 	"github.com/willscott/go-nfs-client/nfs/util"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
+
+type OpenArgs struct {
+	File string
+	Flag int
+	Perm os.FileMode
+}
+
+func (o *OpenArgs) String() string {
+	return fmt.Sprintf("\"%s\"; %05xd %s", o.File, o.Flag, o.Perm)
+}
+
+// NewTrackingFS wraps fs to detect file handle leaks.
+func NewTrackingFS(fs billy.Filesystem) *trackingFS {
+	return &trackingFS{Filesystem: fs, open: make(map[int64]OpenArgs)}
+}
+
+// trackingFS wraps a Filesystem to detect file handle leaks.
+type trackingFS struct {
+	billy.Filesystem
+	mu   sync.Mutex
+	open map[int64]OpenArgs
+}
+
+func (t *trackingFS) ListOpened() []OpenArgs {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ret := make([]OpenArgs, 0, len(t.open))
+	for _, o := range t.open {
+		ret = append(ret, o)
+	}
+	return ret
+}
+
+func (t *trackingFS) Create(filename string) (billy.File, error) {
+	return t.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+}
+
+func (t *trackingFS) Open(filename string) (billy.File, error) {
+	return t.OpenFile(filename, os.O_RDONLY, 0)
+}
+
+func (t *trackingFS) OpenFile(filename string, flag int, perm os.FileMode) (billy.File, error) {
+	open, err := t.Filesystem.OpenFile(filename, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	id := rand.Int63()
+	t.open[id] = OpenArgs{filename, flag, perm}
+	closer := func() {
+		delete(t.open, id)
+	}
+	open = &trackingFile{
+		File:    open,
+		onClose: closer,
+	}
+	return open, err
+}
+
+type trackingFile struct {
+	billy.File
+	onClose func()
+}
+
+func (f *trackingFile) Close() error {
+	f.onClose()
+	return f.File.Close()
+}
 
 func TestNFS(t *testing.T) {
 	if testing.Verbose() {
@@ -29,9 +102,17 @@ func TestNFS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mem := memfs.New()
+	mem := NewTrackingFS(memfs.New())
+
+	defer func() {
+		if opened := mem.ListOpened(); len(opened) > 0 {
+			t.Errorf("Unclosed files: %v", opened)
+		}
+	}()
+
 	// File needs to exist in the root for memfs to acknowledge the root exists.
-	_, _ = mem.Create("/test")
+	r, _ := mem.Create("/test")
+	r.Close()
 
 	handler := helpers.NewNullAuthHandler(mem)
 	cacheHelper := helpers.NewCachingHandler(handler, 1024)
@@ -78,12 +159,18 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
 	b := []byte("hello world")
 	_, err = f.Write(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mf, _ := mem.Open("/helloworld.txt")
+
+	mf, err := target.Open("/helloworld.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mf.Close()
 	buf := make([]byte, len(b))
 	if _, err = mf.Read(buf[:]); err != nil {
 		t.Fatal(err)
