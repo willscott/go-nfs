@@ -49,6 +49,7 @@ func onRead(ctx context.Context, w *response, userHandle Handler) error {
 		}
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
+	defer fh.Close()
 
 	resp := nfsReadResponse{}
 
