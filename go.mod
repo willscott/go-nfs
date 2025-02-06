@@ -1,4 +1,4 @@
-module github.com/treeverse/go-nfs
+module github.com/willscott/go-nfs
 
 go 1.19
 
@@ -20,5 +20,3 @@ require (
 	github.com/polydawn/rio v0.0.0-20220823181337-7c31ad9831a4 // indirect
 	github.com/warpfork/go-errcat v0.0.0-20180917083543-335044ffc86e // indirect
 )
-
-replace github.com/willscott/go-nfs => .
