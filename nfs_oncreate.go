@@ -39,9 +39,8 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		if err := xdr.Read(w.req.Body, &verf); err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
-		Log.Errorf("failing create to indicate lack of support for 'exclusive' mode.")
-		// TODO: support 'exclusive' mode.
-		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
+		attrs = &SetFileAttributes{}
+		Log.Printf("%q: request for unimplemented 'exclusive' mode.", obj.Filename)
 	} else {
 		// invalid
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
