@@ -134,6 +134,13 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
 	fullPath := fs.Join(path...)
 	attrs, err := fs.Lstat(fullPath)
+
+	// Programs frequently use Lstat to test for file existence.
+	// In this case, just return nil, without the Log.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
 	if err != nil || attrs == nil {
 		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
