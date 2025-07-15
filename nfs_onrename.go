@@ -6,7 +6,7 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v6"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 

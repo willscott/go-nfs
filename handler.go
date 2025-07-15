@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"net"
 
-	billy "github.com/go-git/go-billy/v5"
+	billy "github.com/go-git/go-billy/v6"
 )
 
 // Handler represents the interface of the file system / vfs being exposed over NFS

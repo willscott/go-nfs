@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v6"
 )
 
 // NewChangeOSFS wraps billy osfs to add the change interface

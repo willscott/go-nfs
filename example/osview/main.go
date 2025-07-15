@@ -1,36 +1,38 @@
 package main
 
-import (
-	"fmt"
-	"net"
-	"os"
+// osview requires memphis, which does not yet support go-billy/v6
 
-	"github.com/willscott/memphis"
+// import (
+// 	"fmt"
+// 	"net"
+// 	"os"
 
-	nfs "github.com/willscott/go-nfs"
-	nfshelper "github.com/willscott/go-nfs/helpers"
-)
+// 	"github.com/willscott/memphis"
 
-func main() {
-	port := ""
-	if len(os.Args) < 2 {
-		fmt.Printf("Usage: osview </path/to/folder> [port]\n")
-		return
-	} else if len(os.Args) == 3 {
-		port = os.Args[2]
-	}
+// 	nfs "github.com/willscott/go-nfs"
+// 	nfshelper "github.com/willscott/go-nfs/helpers"
+// )
 
-	listener, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		fmt.Printf("Failed to listen: %v\n", err)
-		return
-	}
-	fmt.Printf("Server running at %s\n", listener.Addr())
+// func main() {
+// 	port := ""
+// 	if len(os.Args) < 2 {
+// 		fmt.Printf("Usage: osview </path/to/folder> [port]\n")
+// 		return
+// 	} else if len(os.Args) == 3 {
+// 		port = os.Args[2]
+// 	}
 
-	fs := memphis.FromOS(os.Args[1])
-	bfs := fs.AsBillyFS(0, 0)
+// 	listener, err := net.Listen("tcp", ":"+port)
+// 	if err != nil {
+// 		fmt.Printf("Failed to listen: %v\n", err)
+// 		return
+// 	}
+// 	fmt.Printf("Server running at %s\n", listener.Addr())
 
-	handler := nfshelper.NewNullAuthHandler(bfs)
-	cacheHelper := nfshelper.NewCachingHandler(handler, 1024)
-	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
-}
+// 	fs := memphis.FromOS(os.Args[1])
+// 	bfs := fs.AsBillyFS(0, 0)
+
+// 	handler := nfshelper.NewNullAuthHandler(bfs)
+// 	cacheHelper := nfshelper.NewCachingHandler(handler, 1024)
+// 	fmt.Printf("%v", nfs.Serve(listener, cacheHelper))
+// }

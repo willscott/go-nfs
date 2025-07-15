@@ -3,11 +3,10 @@ package nfs
 import (
 	"bytes"
 	"context"
-	"io"
 	"math"
 	"os"
 
-	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v6"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
@@ -68,21 +67,28 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
-	if req.Offset > 0 {
-		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
-			return &NFSStatusError{NFSStatusIO, err}
+	defer func() {
+		if file != nil {
+			if err := file.Close(); err != nil {
+				Log.Errorf("error closing: %v", err)
+				// Already returning another error
+			}
 		}
-	}
+	}()
+
 	end := req.Count
 	if len(req.Data) < int(end) {
 		end = uint32(len(req.Data))
 	}
-	writtenCount, err := file.Write(req.Data[:end])
-	if err != nil {
-		Log.Errorf("Error writing: %v", err)
+
+	var writtenCount int
+
+	if writtenCount, err = file.WriteAt(req.Data[:end], int64(req.Offset)); err != nil {
 		return &NFSStatusError{NFSStatusIO, err}
 	}
-	if err := file.Close(); err != nil {
+	err = file.Close()
+	file = nil // No more need to close on exit.
+	if err != nil {
 		Log.Errorf("error closing: %v", err)
 		return &NFSStatusError{NFSStatusIO, err}
 	}

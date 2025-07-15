@@ -1,4 +1,4 @@
-// Package memfs is a variant of "github.com/go-git/go-billy/v5/memfs" with
+// Package memfs is a variant of "github.com/go-git/go-billy/v6/memfs" with
 // stable mtimes for items.
 package memfs
 
@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/helper/chroot"
-	"github.com/go-git/go-billy/v5/util"
+	"github.com/go-git/go-billy/v6"
+	"github.com/go-git/go-billy/v6/helper/chroot"
+	"github.com/go-git/go-billy/v6/util"
 )
 
 const separator = filepath.Separator
