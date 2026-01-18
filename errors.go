@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"syscall"
 )
 
 // RPCError provides the error interface for errors thrown by
@@ -228,3 +229,20 @@ var (
 	wccDataErrorBody      = [8]byte{}
 	wccDataErrorFormatter = errFormatterWithBody(wccDataErrorBody[:])
 )
+
+// statusFromWriteError maps write errors to NFS status codes
+func statusFromWriteError(err error) NFSStatus {
+	if err == nil {
+		return NFSStatusOk
+	}
+	if errors.Is(err, syscall.ENOSPC) {
+		return NFSStatusNoSPC
+	}
+	if errors.Is(err, syscall.EDQUOT) {
+		return NFSStatusDQuot
+	}
+	if errors.Is(err, syscall.EFBIG) {
+		return NFSStatusFBig
+	}
+	return NFSStatusIO
+}
