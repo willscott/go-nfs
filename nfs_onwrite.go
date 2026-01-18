@@ -80,11 +80,11 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	writtenCount, err := file.Write(req.Data[:end])
 	if err != nil {
 		Log.Errorf("Error writing: %v", err)
-		return &NFSStatusError{NFSStatusIO, err}
+		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 	if err := file.Close(); err != nil {
 		Log.Errorf("error closing: %v", err)
-		return &NFSStatusError{NFSStatusIO, err}
+		return &NFSStatusError{statusFromWriteError(err), err}
 	}
 
 	writer := bytes.NewBuffer([]byte{})
