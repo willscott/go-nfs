@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io/fs"
 	"reflect"
+	"sync"
 
 	"github.com/willscott/go-nfs"
 
@@ -24,12 +25,11 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 		nfs.Log.Warnf("Caching handler created with insufficient cache to support directory listing", "size", limit, "verifiers", verifierLimit)
 	}
 	cache, _ := lru.New[uuid.UUID, entry](limit)
-	reverseCache := make(map[string][]uuid.UUID)
 	verifiers, _ := lru.New[uint64, verifier](verifierLimit)
 	return &CachingHandler{
 		Handler:         h,
 		activeHandles:   cache,
-		reverseHandles:  reverseCache,
+		reverseHandles:  make(map[string][]uuid.UUID),
 		activeVerifiers: verifiers,
 		cacheLimit:      limit,
 	}
@@ -38,10 +38,11 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 // CachingHandler implements to/from handle via an LRU cache.
 type CachingHandler struct {
 	nfs.Handler
-	activeHandles   *lru.Cache[uuid.UUID, entry]
-	reverseHandles  map[string][]uuid.UUID
-	activeVerifiers *lru.Cache[uint64, verifier]
-	cacheLimit      int
+	activeHandles    *lru.Cache[uuid.UUID, entry]
+	reverseHandles   map[string][]uuid.UUID
+	reverseHandlesMu sync.RWMutex
+	activeVerifiers  *lru.Cache[uint64, verifier]
+	cacheLimit       int
 }
 
 type entry struct {
@@ -70,10 +71,7 @@ func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 		c.evictReverseCache(rk, evictedKey)
 	}
 
-	if _, ok := c.reverseHandles[joinedPath]; !ok {
-		c.reverseHandles[joinedPath] = []uuid.UUID{}
-	}
-	c.reverseHandles[joinedPath] = append(c.reverseHandles[joinedPath], id)
+	c.appendReverseHandle(joinedPath, id)
 	b, _ := id.MarshalBinary()
 
 	return b
@@ -103,11 +101,7 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 }
 
 func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []byte {
-	uuids, exists := c.reverseHandles[path]
-
-	if !exists {
-		return nil
-	}
+	uuids := c.getReverseHandles(path)
 
 	for _, id := range uuids {
 		if candidate, ok := c.activeHandles.Get(id); ok {
@@ -121,18 +115,31 @@ func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []b
 }
 
 func (c *CachingHandler) evictReverseCache(path string, handle uuid.UUID) {
-	uuids, exists := c.reverseHandles[path]
+	c.reverseHandlesMu.Lock()
+	defer c.reverseHandlesMu.Unlock()
 
-	if !exists {
+	uuids, ok := c.reverseHandles[path]
+	if !ok {
 		return
 	}
 	for i, u := range uuids {
 		if u == handle {
-			uuids = append(uuids[:i], uuids[i+1:]...)
-			c.reverseHandles[path] = uuids
+			c.reverseHandles[path] = append(uuids[:i], uuids[i+1:]...)
 			return
 		}
 	}
+}
+
+func (c *CachingHandler) getReverseHandles(path string) []uuid.UUID {
+	c.reverseHandlesMu.RLock()
+	defer c.reverseHandlesMu.RUnlock()
+	return c.reverseHandles[path]
+}
+
+func (c *CachingHandler) appendReverseHandle(path string, id uuid.UUID) {
+	c.reverseHandlesMu.Lock()
+	defer c.reverseHandlesMu.Unlock()
+	c.reverseHandles[path] = append(c.reverseHandles[path], id)
 }
 
 func (c *CachingHandler) InvalidateHandle(fs billy.Filesystem, handle []byte) error {
