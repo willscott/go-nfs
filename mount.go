@@ -15,6 +15,7 @@ func init() {
 	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcNull), onMountNull)
 	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcMount), onMount)
 	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcUmnt), onUMount)
+	_ = RegisterMessageHandler(mountServiceID, uint32(MountProcExport), onMountExport)
 }
 
 func onMountNull(ctx context.Context, w *response, userHandle Handler) error {
@@ -55,4 +56,19 @@ func onUMount(ctx context.Context, w *response, userHandle Handler) error {
 	}
 
 	return w.writeHeader(ResponseCodeSuccess)
+}
+
+func onMountExport(ctx context.Context, w *response, userHandle Handler) error {
+	exports := userHandle.Export(ctx)
+
+	if err := w.writeHeader(ResponseCodeSuccess); err != nil {
+		return err
+	}
+
+	writer := bytes.NewBuffer([]byte{})
+
+	if err := xdr.Write(writer, exports); err != nil {
+		return err
+	}
+	return w.Write(writer.Bytes())
 }

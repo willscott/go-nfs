@@ -20,6 +20,9 @@ type Handler interface {
 
 	// Optional methods - generic helpers or trivial implementations can be sufficient depending on use case.
 
+	// List of all exported file systems.
+	Export(context.Context) []Export
+
 	// Fill in information about a file system's free space.
 	FSStat(context.Context, billy.Filesystem, *FSStat) error
 
