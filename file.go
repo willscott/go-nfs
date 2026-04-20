@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/go-git/go-billy/v5"
@@ -133,6 +134,13 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 func tryStat(fs billy.Filesystem, path []string) *FileAttribute {
 	fullPath := fs.Join(path...)
 	attrs, err := fs.Lstat(fullPath)
+
+	// Programs frequently use Lstat to test for file existence.
+	// In this case, just return nil, without the Log.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
 	if err != nil || attrs == nil {
 		Log.Errorf("err loading attrs for %s: %v", fs.Join(path...), err)
 		return nil
@@ -249,7 +257,11 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		if curr.Mode()&os.ModeSymlink != 0 {
 			return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 		}
-		fp, err := fs.OpenFile(file, os.O_WRONLY|os.O_EXCL, 0)
+		flags := os.O_WRONLY
+		if runtime.GOOS != "plan9" {
+			flags |= os.O_EXCL
+		}
+		fp, err := fs.OpenFile(file, flags, 0)
 		if errors.Is(err, os.ErrPermission) {
 			return &NFSStatusError{NFSStatusAccess, err}
 		} else if err != nil {
