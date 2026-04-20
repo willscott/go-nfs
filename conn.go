@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 
 	xdr2 "github.com/rasky/go-xdr/xdr2"
 	"github.com/willscott/go-nfs-client/nfs/rpc"
@@ -20,6 +21,10 @@ var (
 	ErrInputInvalid = errors.New("invalid input")
 	// ErrAlreadySent is returned when writing a header/status multiple times
 	ErrAlreadySent = errors.New("response already started")
+	// ErrAbortHandler is a sentinel panic value to abort a handler.
+	// Panicking with ErrAbortHandler still returns a system error to
+	// the client, but suppresses logging of a stack trace.
+	ErrAbortHandler = errors.New("nfs: abort handler")
 )
 
 // ResponseCode is a combination of accept_stat and reject_stat.
@@ -122,7 +127,19 @@ func (c *conn) handle(ctx context.Context, w *response) error {
 		}
 		return c.err(ctx, w, &ResponseCodeProcUnavailableError{})
 	}
-	appError := handler(ctx, w, c.Server.Handler)
+	var appError error
+	func() {
+		defer func() {
+			if r := recover(); r != nil && r != ErrAbortHandler {
+				const size = 64 << 10
+				buf := make([]byte, size)
+				buf = buf[:runtime.Stack(buf, false)]
+				Log.Errorf("panic in handler for %v: %v\n%s", w.req, r, buf)
+				appError = &ResponseCodeSystemError{}
+			}
+		}()
+		appError = handler(ctx, w, c.Server.Handler)
+	}()
 	if drainErr := w.drain(ctx); drainErr != nil {
 		return drainErr
 	}
