@@ -34,6 +34,11 @@ func (h *NullAuthHandler) Change(fs billy.Filesystem) billy.Change {
 	return nil
 }
 
+// List of all exported file systems.
+func (h *NullAuthHandler) Export(context.Context) []nfs.Export {
+	return []nfs.Export{{Dir: []byte("/mount")}}
+}
+
 // FSStat provides information about a filesystem.
 func (h *NullAuthHandler) FSStat(ctx context.Context, f billy.Filesystem, s *nfs.FSStat) error {
 	return nil
