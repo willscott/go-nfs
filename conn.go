@@ -122,7 +122,17 @@ func (c *conn) handle(ctx context.Context, w *response) error {
 		}
 		return c.err(ctx, w, &ResponseCodeProcUnavailableError{})
 	}
-	appError := handler(ctx, w, c.Server.Handler)
+	var appError error
+	func() {
+		if ph := c.Server.PanicHandler; ph != nil {
+			defer func() {
+				if r := recover(); r != nil {
+					appError = &panicAppError{code: ph(r)}
+				}
+			}()
+		}
+		appError = handler(ctx, w, c.Server.Handler)
+	}()
 	if drainErr := w.drain(ctx); drainErr != nil {
 		return drainErr
 	}
