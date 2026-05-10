@@ -14,6 +14,9 @@ type Server struct {
 	Handler
 	ID [8]byte
 	context.Context
+
+	// PanicHandler, when non-nil, recovers panics in request handlers; nil preserves today's behavior. See DefaultPanicHandler.
+	PanicHandler func(recovered any) ResponseCode
 }
 
 // RegisterMessageHandler registers a handler for a specific
