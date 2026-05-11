@@ -88,3 +88,19 @@ type MountResponse struct {
 	FileHandle
 	AuthFlavors []int
 }
+
+// Export represents one entry returned by MOUNTPROC_EXPORT. An empty Groups
+// slice means the export is accessible from anywhere (the wire encoding is a
+// nil groups list, which clients like `showmount -e` render as "(everyone)").
+type Export struct {
+	Dir    string
+	Groups []string
+}
+
+// ExportHandler is an optional interface a Handler may implement to provide a
+// custom list of exports for MOUNTPROC_EXPORT. Handlers that do not implement
+// it get a default response of a single entry advertising "/" with no group
+// restriction, which matches what the Mount RPC effectively serves.
+type ExportHandler interface {
+	Exports() []Export
+}
