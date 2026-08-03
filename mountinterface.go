@@ -88,3 +88,16 @@ type MountResponse struct {
 	FileHandle
 	AuthFlavors []int
 }
+
+// Group contains a group node, with information about the allowed access group.
+type Group struct {
+	Name []byte
+	Next []Group
+}
+
+// Export contains an export node, with information about an exported filesystem.
+type Export struct {
+	Dir     []byte
+	Groups  []Group
+	Next    []Export
+}
