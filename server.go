@@ -13,6 +13,11 @@ import (
 type Server struct {
 	Handler
 	ID [8]byte
+	// ConcurrentHandlers is how many requests on one connection may be
+	// handled at the same time. Zero or one handles them one at a time, in
+	// order, as before. A larger value requires the Handler and the
+	// filesystems it returns to be safe for concurrent use.
+	ConcurrentHandlers int
 	context.Context
 }
 
