@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	xdr2 "github.com/rasky/go-xdr/xdr2"
 	"github.com/willscott/go-nfs-client/nfs/rpc"
@@ -43,9 +44,20 @@ type conn struct {
 	net.Conn
 }
 
+// maxRequestFragmentBytes rejects implausible record-marking lengths before a
+// request body is buffered for concurrent handling. Linux caps rsize and
+// wsize at 1 MiB, so real requests stay well under this.
+const maxRequestFragmentBytes = 16 << 20
+
 func (c *conn) serve(ctx context.Context) {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if c.Server.ConcurrentHandlers > 1 {
+		c.serveConcurrently(connCtx, cancel, c.Server.ConcurrentHandlers)
+		return
+	}
+
 	c.writeSerializer = make(chan []byte, 1)
 	go c.serializeWrites(connCtx)
 
@@ -74,6 +86,66 @@ func (c *conn) serve(ctx context.Context) {
 			c.Close()
 			return
 		}
+	}
+}
+
+// serveConcurrently handles up to limit requests from the connection at once.
+// Linux clients multiplex every process's I/O on a mount over one TCP
+// connection, so handling requests one at a time lets a single slow
+// operation stall the whole mount. RPC replies carry the request's XID, so
+// completing them out of order is legal.
+//
+// Each request body is read into memory before its handler starts, so the
+// loop can read the next request while earlier ones are still running.
+func (c *conn) serveConcurrently(ctx context.Context, cancel context.CancelFunc, limit int) {
+	c.writeSerializer = make(chan []byte, limit)
+	go c.serializeWrites(ctx)
+
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	bio := bufio.NewReader(c.Conn)
+	for {
+		w, err := c.readRequestHeader(ctx, bio)
+		if err != nil {
+			// A clean close, or a request that can't be framed: either way
+			// nothing more can be read from this connection.
+			c.Close()
+			return
+		}
+		Log.Tracef("request: %v", w.req)
+		if err := w.bufferBody(); err != nil {
+			Log.Errorf("error reading request body: %v", err)
+			c.Close()
+			return
+		}
+
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		wg.Add(1)
+		go func(w *response) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			err := c.handle(ctx, w)
+			respErr := w.finish(ctx)
+			if err != nil {
+				Log.Errorf("error handling req: %v", err)
+				// failure to handle at a level needing to close the connection.
+				cancel()
+				c.Close()
+				return
+			}
+			if respErr != nil && respErr != context.Canceled {
+				Log.Errorf("error sending response: %v", respErr)
+				cancel()
+				c.Close()
+			}
+		}(w)
 	}
 }
 
@@ -251,6 +323,25 @@ func (w *response) Write(dat []byte) error {
 	return nil
 }
 
+// bufferBody reads the rest of the request frame into memory, so the
+// connection can go on to read the next request while this one is handled.
+// The handler sees the same io.LimitedReader as before.
+func (w *response) bufferBody() error {
+	lr, ok := w.req.Body.(*io.LimitedReader)
+	if !ok {
+		return io.ErrUnexpectedEOF
+	}
+	var buf []byte
+	if lr.N > 0 {
+		buf = make([]byte, lr.N)
+	}
+	if _, err := io.ReadFull(lr, buf); err != nil {
+		return err
+	}
+	w.req.Body = &io.LimitedReader{R: bytes.NewReader(buf), N: int64(len(buf))}
+	return nil
+}
+
 // drain reads the rest of the request frame if not consumed by the handler.
 func (w *response) drain(ctx context.Context) error {
 	if reader, ok := w.req.Body.(*io.LimitedReader); ok {
@@ -291,7 +382,7 @@ func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *
 		return nil, ErrInputInvalid
 	}
 	reqLen := fragment - uint32(1<<31)
-	if reqLen < 40 {
+	if reqLen < 40 || reqLen > maxRequestFragmentBytes {
 		return nil, ErrInputInvalid
 	}
 
