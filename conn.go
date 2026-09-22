@@ -187,7 +187,7 @@ func (c *conn) serializeWrites(ctx context.Context) {
 // Handle a request. errors from this method indicate a failure to read or
 // write on the network stream, and trigger a disconnection of the connection.
 func (c *conn) handle(ctx context.Context, w *response) error {
-	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Proc)
+	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
 	if handler == nil {
 		Log.Debugf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)
 		if err := w.drain(ctx); err != nil {
@@ -245,6 +245,16 @@ type request struct {
 
 func (r *request) String() string {
 	if r.Header.Prog == nfsServiceID {
+		if r.Header.Vers == nfs4Version {
+			switch r.Header.Proc {
+			case nfs4ProcNull:
+				return fmt.Sprintf("RPC #%d (nfs4.Null)", r.xid)
+			case nfs4ProcCompound:
+				return fmt.Sprintf("RPC #%d (nfs4.Compound)", r.xid)
+			default:
+				return fmt.Sprintf("RPC #%d (nfs4.%d)", r.xid, r.Header.Proc)
+			}
+		}
 		return fmt.Sprintf("RPC #%d (nfs.%s)", r.xid, NFSProcedure(r.Header.Proc))
 	} else if r.Header.Prog == mountServiceID {
 		return fmt.Sprintf("RPC #%d (mount.%s)", r.xid, MountProcedure(r.Header.Proc))
