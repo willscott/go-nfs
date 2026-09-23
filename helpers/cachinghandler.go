@@ -200,7 +200,15 @@ func (c *CachingHandler) evictReverseCache(path string, handle uuid.UUID) {
 	}
 	for i, u := range uuids {
 		if u == handle {
-			c.reverseHandles[path] = append(uuids[:i], uuids[i+1:]...)
+			remaining := append(uuids[:i], uuids[i+1:]...)
+			if len(remaining) == 0 {
+				// The last handle for this path is gone, so forget the
+				// path itself: keeping the key leaks an entry for every
+				// file the server ever handed out a handle for.
+				delete(c.reverseHandles, path)
+				return
+			}
+			c.reverseHandles[path] = remaining
 			return
 		}
 	}
