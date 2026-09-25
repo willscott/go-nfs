@@ -24,16 +24,16 @@ type Server struct {
 	EnabledNFSVersions []uint32
 	context.Context
 
-	// Locker holds the byte ranges behind NFSv4 LOCK, LOCKT and LOCKU.
+	// NFSv4Locker holds the byte ranges behind NFSv4 LOCK, LOCKT and LOCKU.
 	// Nil uses an in-memory table private to this server (NewMemoryLocker).
 	// Supply a table shared with other protocol servers so locks conflict
 	// across protocols.
-	Locker ByteRangeLocker
+	NFSv4Locker ByteRangeLocker
 
-	// NFSv4 lock protocol state (stateids, seqids, client leases), created
-	// on first LOCK-family or RENEW operation.
-	lockMgr     *nfs4LockManager
-	lockMgrOnce sync.Once
+	// NFSv4 protocol state (open and lock stateids, client leases),
+	// created on first use.
+	nfs4StateMgr  *nfs4StateManager
+	nfs4StateOnce sync.Once
 }
 
 // RegisterMessageHandler registers a handler for a specific NFSv3/MOUNTv3

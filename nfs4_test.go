@@ -4,130 +4,339 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 
 	"github.com/go-git/go-billy/v5"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 	"github.com/willscott/go-nfs/helpers/memfs"
 )
 
-func TestNFSv4CompoundPutRootFHGetAttr(t *testing.T) {
+// nfs4TestOp is one operation of a test COMPOUND: its number and arguments.
+type nfs4TestOp struct {
+	op   nfs4Op
+	args interface{}
+}
+
+type nfs4RPCReplyHeader struct {
+	Xid          uint32
+	MsgType      uint32
+	ReplyStat    uint32
+	VerfFlavor   uint32
+	VerfBody     []byte
+	AcceptStatus uint32
+}
+
+func newNFS4TestServer(t *testing.T) (*Server, *nfs4TestHandler, billy.Filesystem) {
+	t.Helper()
 	fs := memfs.New()
 	if err := fs.MkdirAll("/", 0755); err != nil {
 		t.Fatalf("failed to create test root: %v", err)
 	}
 	handler := newNFSv4TestHandler(fs)
-	srv := &Server{
-		Handler: handler,
-		ID:      [8]byte{1, 2, 3, 4, 5, 6, 7, 8},
+	srv := &Server{Handler: handler, ID: [8]byte{1, 2, 3, 4, 5, 6, 7, 8}}
+	return srv, handler, fs
+}
+
+// nfs4CompoundRequest encodes ops as the body of one COMPOUND call.
+func nfs4CompoundRequest(t *testing.T, ops ...nfs4TestOp) []byte {
+	t.Helper()
+	var body bytes.Buffer
+	if err := xdr.Write(&body, nfs4CompoundArgs{Tag: []byte("test")}); err != nil {
+		t.Fatal(err)
 	}
+	if err := xdr.Write(&body, uint32(len(ops))); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if err := xdr.Write(&body, op.op); err != nil {
+			t.Fatal(err)
+		}
+		if op.args != nil {
+			if err := xdr.Write(&body, op.args); err != nil {
+				t.Fatalf("encoding args of op %d: %v", op.op, err)
+			}
+		}
+	}
+	return body.Bytes()
+}
 
-	reqBody := bytes.NewBuffer(nil)
-	req := newNFS4Writer(reqBody)
-	req.writeOpaque([]byte("root"))
-	req.writeUint32(0) // minorversion
-	req.writeUint32(3) // op count
-	req.writeUint32(uint32(opPutRootFH))
-	req.writeUint32(uint32(opGetFH))
-	req.writeUint32(uint32(opGetAttr))
-	writeBitmap(req, bitmapFromAttrs(fattr4Type, fattr4Mode))
-
+// nfs4CompoundReply runs the call in req through srv and returns the
+// compound status and a reader positioned at the first result.
+func nfs4CompoundReply(t *testing.T, srv *Server, handler Handler, req *request) (nfs4Status, io.Reader) {
+	t.Helper()
 	w := &response{
-		conn: &conn{Server: srv},
-		req: &request{
-			xid:  1,
-			Body: bytes.NewReader(reqBody.Bytes()),
-		},
+		conn:     &conn{Server: srv},
+		req:      req,
 		errorFmt: basicErrorFormatter,
 		writer:   bytes.NewBuffer(nil),
 	}
-
-	if err := onNFSv4Compound(context.Background(), w, handler); err != nil {
-		t.Fatalf("onNFSv4Compound returned error: %v", err)
+	if err := nfs4OnCompound(context.Background(), w, handler); err != nil {
+		t.Fatalf("nfs4OnCompound returned error: %v", err)
 	}
 
-	resp := newNFS4Reader(bytes.NewReader(w.writer.Bytes()))
-	if xid, err := resp.readUint32(); err != nil || xid != 1 {
-		t.Fatalf("xid = %d, %v; want 1, nil", xid, err)
+	resp := bytes.NewReader(w.writer.Bytes())
+	var rpc nfs4RPCReplyHeader
+	if err := xdr.Read(resp, &rpc); err != nil {
+		t.Fatalf("failed to read RPC reply header: %v", err)
 	}
-	for i := 0; i < 3; i++ {
-		if _, err := resp.readUint32(); err != nil {
-			t.Fatalf("failed to read RPC reply header word %d: %v", i, err)
+	if rpc.Xid != req.xid || rpc.AcceptStatus != uint32(ResponseCodeSuccess) {
+		t.Fatalf("RPC reply header = %+v, want xid %d and success", rpc, req.xid)
+	}
+	var header nfs4CompoundResHeader
+	if err := xdr.Read(resp, &header); err != nil {
+		t.Fatalf("failed to read COMPOUND header: %v", err)
+	}
+	if string(header.Tag) != "test" {
+		t.Fatalf("tag = %q, want test", header.Tag)
+	}
+	return header.Status, resp
+}
+
+// nfs4RunCompound sends ops as one COMPOUND and returns the compound status
+// and a reader positioned at the first result.
+func nfs4RunCompound(t *testing.T, srv *Server, handler Handler, ops ...nfs4TestOp) (nfs4Status, io.Reader) {
+	t.Helper()
+	req := &request{xid: 1, Body: bytes.NewReader(nfs4CompoundRequest(t, ops...))}
+	return nfs4CompoundReply(t, srv, handler, req)
+}
+
+// nfs4ExpectOp reads one result's header and then its body into res, if
+// res is not nil.
+func nfs4ExpectOp(t *testing.T, r io.Reader, op nfs4Op, status nfs4Status, res interface{}) {
+	t.Helper()
+	var header nfs4ResultHeader
+	if err := xdr.Read(r, &header); err != nil {
+		t.Fatalf("failed to read result header for op %d: %v", op, err)
+	}
+	if header.Op != op || header.Status != status {
+		t.Fatalf("result = op %d status %d, want op %d status %d", header.Op, header.Status, op, status)
+	}
+	if res != nil {
+		if err := xdr.Read(r, res); err != nil {
+			t.Fatalf("failed to read result of op %d: %v", op, err)
 		}
-	}
-	if _, err := resp.readOpaque(nfs4OpaqueLimit); err != nil {
-		t.Fatalf("failed to read RPC verifier: %v", err)
-	}
-	if acceptStatus, err := resp.readUint32(); err != nil || acceptStatus != uint32(ResponseCodeSuccess) {
-		t.Fatalf("accept status = %d, %v; want success", acceptStatus, err)
-	}
-
-	if status, err := resp.readUint32(); err != nil || nfs4Status(status) != nfs4OK {
-		t.Fatalf("compound status = %d, %v; want NFS4_OK", status, err)
-	}
-	tag, err := resp.readOpaque(nfs4OpaqueLimit)
-	if err != nil {
-		t.Fatalf("failed to read response tag: %v", err)
-	}
-	if string(tag) != "root" {
-		t.Fatalf("tag = %q, want root", tag)
-	}
-	resCount, err := resp.readUint32()
-	if err != nil {
-		t.Fatalf("failed to read result count: %v", err)
-	}
-	if resCount != 3 {
-		t.Fatalf("result count = %d, want 3", resCount)
-	}
-
-	assertOpStatus(t, resp, opPutRootFH)
-
-	assertOpStatus(t, resp, opGetFH)
-	fh, err := resp.readOpaque(nfs4FhSize)
-	if err != nil {
-		t.Fatalf("failed to read GETFH handle: %v", err)
-	}
-	if len(fh) == 0 {
-		t.Fatalf("GETFH returned empty handle")
-	}
-
-	assertOpStatus(t, resp, opGetAttr)
-	mask, err := resp.readBitmap()
-	if err != nil {
-		t.Fatalf("failed to read GETATTR mask: %v", err)
-	}
-	if !bitmapHas(mask, fattr4Type) || !bitmapHas(mask, fattr4Mode) {
-		t.Fatalf("GETATTR mask = %v, want type and mode", mask)
-	}
-	attrVals, err := resp.readOpaque(1024)
-	if err != nil {
-		t.Fatalf("failed to read GETATTR values: %v", err)
-	}
-	attrReader := newNFS4Reader(bytes.NewReader(attrVals))
-	fileType, err := attrReader.readUint32()
-	if err != nil {
-		t.Fatalf("failed to read type attr: %v", err)
-	}
-	if fileType != uint32(FileTypeDirectory) {
-		t.Fatalf("type attr = %d, want directory", fileType)
 	}
 }
 
-func assertOpStatus(t *testing.T, resp *nfs4Reader, want nfs4Op) {
-	t.Helper()
-	op, err := resp.readUint32()
+func nfs4OpenFile(name string, owner string, how *nfs4CreateHow) nfs4TestOp {
+	args := nfs4OpenArgs{
+		Seqid:       1,
+		ShareAccess: nfs4ShareAccessRead | nfs4ShareAccessWrite,
+		Owner:       nfs4Owner{ClientID: 7, Owner: owner},
+		Claim:       nfs4ClaimNull,
+		File:        name,
+	}
+	if how != nil {
+		args.OpenType = nfs4OpenCreate
+		args.How = *how
+	}
+	return nfs4TestOp{nfs4OpOpen, args}
+}
+
+func TestNFSv4CompoundPutRootFHGetAttr(t *testing.T) {
+	srv, handler, _ := newNFS4TestServer(t)
+
+	status, resp := nfs4RunCompound(t, srv, handler,
+		nfs4TestOp{nfs4OpPutRootFH, nil},
+		nfs4TestOp{nfs4OpGetFH, nil},
+		nfs4TestOp{nfs4OpGetAttr, nfs4GetAttrArgs{Request: nfs4BitmapOf(nfs4AttrType, nfs4AttrMode)}},
+	)
+	if status != nfs4OK {
+		t.Fatalf("compound status = %d, want NFS4_OK", status)
+	}
+
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	var fh []byte
+	nfs4ExpectOp(t, resp, nfs4OpGetFH, nfs4OK, &fh)
+	if len(fh) == 0 {
+		t.Fatalf("GETFH returned empty handle")
+	}
+	var attrs nfs4FAttr
+	nfs4ExpectOp(t, resp, nfs4OpGetAttr, nfs4OK, &attrs)
+	if !attrs.Mask.has(nfs4AttrType) || !attrs.Mask.has(nfs4AttrMode) {
+		t.Fatalf("GETATTR mask = %v, want type and mode", attrs.Mask)
+	}
+	var vals struct {
+		Type FileType
+		Mode uint32
+	}
+	if err := xdr.Read(bytes.NewReader(attrs.Vals), &vals); err != nil {
+		t.Fatalf("failed to read attribute values: %v", err)
+	}
+	if vals.Type != FileTypeDirectory {
+		t.Fatalf("type attr = %d, want directory", vals.Type)
+	}
+}
+
+func TestNFSv4OpenStateIDGenerations(t *testing.T) {
+	srv, handler, _ := newNFS4TestServer(t)
+	unchecked := &nfs4CreateHow{Mode: nfs4CreateUnchecked}
+
+	open := func(name, owner string) nfs4OpenRes {
+		t.Helper()
+		status, resp := nfs4RunCompound(t, srv, handler,
+			nfs4TestOp{nfs4OpPutRootFH, nil},
+			nfs4OpenFile(name, owner, unchecked),
+		)
+		if status != nfs4OK {
+			t.Fatalf("OPEN %s by %s: status = %d", name, owner, status)
+		}
+		nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+		var res nfs4OpenRes
+		nfs4ExpectOp(t, resp, nfs4OpOpen, nfs4OK, &res)
+		return res
+	}
+
+	first := open("f", "alice")
+	if first.StateID.Seqid != 1 {
+		t.Fatalf("first open seqid = %d, want 1", first.StateID.Seqid)
+	}
+	if first.RFlags&nfs4OpenResultLocktypePosix == 0 {
+		t.Fatalf("rflags = %#x, want POSIX lock type", first.RFlags)
+	}
+	again := open("f", "alice")
+	if again.StateID.Other != first.StateID.Other || again.StateID.Seqid != 2 {
+		t.Fatalf("reopen stateid = %+v, want same state at seqid 2 (first %+v)", again.StateID, first.StateID)
+	}
+	if other := open("f", "bob"); other.StateID.Other == first.StateID.Other || other.StateID.Seqid != 1 {
+		t.Fatalf("another owner's stateid = %+v, want a new state at seqid 1", other.StateID)
+	}
+	if other := open("g", "alice"); other.StateID.Other == first.StateID.Other {
+		t.Fatal("another file must get its own stateid")
+	}
+
+	closeOp := nfs4TestOp{nfs4OpClose, nfs4CloseArgs{Seqid: 3, StateID: again.StateID}}
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, closeOp)
+	if status != nfs4OK {
+		t.Fatalf("CLOSE: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	var closed nfs4StateID
+	nfs4ExpectOp(t, resp, nfs4OpClose, nfs4OK, &closed)
+	if closed.Other != first.StateID.Other || closed.Seqid != 3 {
+		t.Fatalf("CLOSE stateid = %+v, want seqid 3", closed)
+	}
+
+	status, _ = nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, closeOp)
+	if status != nfs4ErrBadStateID {
+		t.Fatalf("second CLOSE: status = %d, want BAD_STATEID", status)
+	}
+}
+
+func TestNFSv4ExclusiveCreateActsGuarded(t *testing.T) {
+	srv, handler, fs := newNFS4TestServer(t)
+	exclusive := &nfs4CreateHow{Mode: nfs4CreateExclusive, Verifier: [8]byte{9}}
+
+	status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("new", "o", exclusive))
+	if status != nfs4OK {
+		t.Fatalf("exclusive create of a new file: status = %d", status)
+	}
+	if _, err := fs.Stat("new"); err != nil {
+		t.Fatalf("exclusive create made no file: %v", err)
+	}
+
+	status, _ = nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("new", "o", exclusive))
+	if status != nfs4ErrExist {
+		t.Fatalf("exclusive create of an existing file: status = %d, want EXIST", status)
+	}
+}
+
+func TestNFSv4GuardedCreateAppliesAttributes(t *testing.T) {
+	srv, handler, fs := newNFS4TestServer(t)
+	var vals bytes.Buffer
+	if err := xdr.Write(&vals, uint32(0640)); err != nil {
+		t.Fatal(err)
+	}
+	guarded := &nfs4CreateHow{Mode: nfs4CreateGuarded, GuardedAttrs: nfs4FAttr{Mask: nfs4BitmapOf(nfs4AttrMode), Vals: vals.Bytes()}}
+
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("f", "o", guarded))
+	if status != nfs4OK {
+		t.Fatalf("guarded create: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	var res nfs4OpenRes
+	nfs4ExpectOp(t, resp, nfs4OpOpen, nfs4OK, &res)
+	if !res.AttrSet.has(nfs4AttrMode) {
+		t.Fatalf("attrset = %v, want mode", res.AttrSet)
+	}
+	info, err := fs.Stat("f")
 	if err != nil {
-		t.Fatalf("failed to read op: %v", err)
+		t.Fatal(err)
 	}
-	if nfs4Op(op) != want {
-		t.Fatalf("op = %d, want %d", op, want)
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("mode = %v, want 0640", info.Mode().Perm())
 	}
-	status, err := resp.readUint32()
-	if err != nil {
-		t.Fatalf("failed to read status for op %d: %v", want, err)
+}
+
+func TestNFSv4SetAttrFailureCarriesAttrsSet(t *testing.T) {
+	srv, handler, _ := newNFS4TestServer(t)
+	// SETATTR of an attribute that cannot be set.
+	args := nfs4SetAttrArgs{Attrs: nfs4FAttr{Mask: nfs4BitmapOf(nfs4AttrFileID)}}
+
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4TestOp{nfs4OpSetAttr, args})
+	if status != nfs4ErrAttrNotSupp {
+		t.Fatalf("status = %d, want ATTRNOTSUPP", status)
 	}
-	if nfs4Status(status) != nfs4OK {
-		t.Fatalf("status for op %d = %d, want NFS4_OK", want, status)
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	var set nfs4Bitmap
+	nfs4ExpectOp(t, resp, nfs4OpSetAttr, nfs4ErrAttrNotSupp, &set)
+	if len(set) != 0 {
+		t.Fatalf("attrsset = %v, want empty", set)
+	}
+}
+
+func TestNFSv4LockThroughCompound(t *testing.T) {
+	srv, handler, _ := newNFS4TestServer(t)
+	unchecked := &nfs4CreateHow{Mode: nfs4CreateUnchecked}
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("f", "o", unchecked))
+	if status != nfs4OK {
+		t.Fatalf("OPEN: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	var opened nfs4OpenRes
+	nfs4ExpectOp(t, resp, nfs4OpOpen, nfs4OK, &opened)
+	lookup := nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "f"}}
+
+	lock := func(clientID uint64, owner string) (nfs4Status, io.Reader) {
+		return nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, lookup, nfs4TestOp{nfs4OpLock, nfs4LockArgs{
+			LockType: nfs4WriteLT,
+			Offset:   0,
+			Length:   100,
+			Locker: nfs4Locker{
+				NewLockOwner: true,
+				OpenOwner: nfs4OpenToLockOwner{
+					OpenStateID: opened.StateID,
+					LockOwner:   nfs4Owner{ClientID: clientID, Owner: owner},
+				},
+			},
+		}})
+	}
+
+	status, resp = lock(1, "alice")
+	if status != nfs4OK {
+		t.Fatalf("LOCK: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
+	var locked nfs4StateID
+	nfs4ExpectOp(t, resp, nfs4OpLock, nfs4OK, &locked)
+	if locked.Seqid != 1 || locked.Other == opened.StateID.Other {
+		t.Fatalf("lock stateid = %+v, want a new state at seqid 1", locked)
+	}
+
+	status, resp = lock(2, "bob")
+	if status != nfs4ErrDenied {
+		t.Fatalf("conflicting LOCK: status = %d, want DENIED", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
+	var denied nfs4LockDenied
+	nfs4ExpectOp(t, resp, nfs4OpLock, nfs4ErrDenied, &denied)
+	want := nfs4LockDenied{Offset: 0, Length: 100, LockType: nfs4WriteLT, Owner: nfs4Owner{ClientID: 1, Owner: "alice"}}
+	if denied != want {
+		t.Fatalf("denied = %+v, want %+v", denied, want)
 	}
 }
 
@@ -182,4 +391,19 @@ func (h *nfs4TestHandler) InvalidateHandle(billy.Filesystem, []byte) error {
 
 func (h *nfs4TestHandler) HandleLimit() int {
 	return 100
+}
+
+func TestNFSv4SupportedAttrsIncludeSettableTimes(t *testing.T) {
+	// Linux masks SETATTR by supported_attrs, so without these it never
+	// sends times and touch -d silently does nothing.
+	for _, attr := range []nfs4Attr{nfs4AttrTimeAccessSet, nfs4AttrTimeModifySet} {
+		if !nfs4SupportedAttrs.has(attr) {
+			t.Errorf("supported_attrs lacks settable attribute %d", attr)
+		}
+	}
+	for _, attr := range nfs4WritableAttrs.attrs() {
+		if !nfs4SupportedAttrs.has(attr) {
+			t.Errorf("writable attribute %d is not in supported_attrs", attr)
+		}
+	}
 }

@@ -16,7 +16,7 @@ const (
 var errInvalidLockRange = errors.New("nfs: empty or inverted lock range")
 
 // NewMemoryLocker returns an in-memory ByteRangeLocker. It is what a Server
-// uses when its Locker is nil. Locks are advisory and do not survive a
+// uses when its NFSv4Locker is nil. Locks are advisory and do not survive a
 // restart. Caps of zero or less select the defaults.
 func NewMemoryLocker(maxLocksPerFile, maxLocksPerClient int) ByteRangeLocker {
 	if maxLocksPerFile <= 0 {
