@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-billy/v5"
@@ -343,6 +344,7 @@ func TestNFSv4LockThroughCompound(t *testing.T) {
 type nfs4TestHandler struct {
 	fs      billy.Filesystem
 	handles map[string][]string
+	next    int
 }
 
 func newNFSv4TestHandler(fs billy.Filesystem) *nfs4TestHandler {
@@ -367,8 +369,16 @@ func (h *nfs4TestHandler) FSStat(context.Context, billy.Filesystem, *FSStat) err
 	return nil
 }
 
+// ToHandle returns a path's existing handle, as CachingHandler does, so
+// operations that invalidate a path's handle reach the one clients hold.
 func (h *nfs4TestHandler) ToHandle(_ billy.Filesystem, path []string) []byte {
-	handle := []byte(fmt.Sprintf("fh-%d", len(h.handles)+1))
+	for handle, p := range h.handles {
+		if strings.Join(p, "/") == strings.Join(path, "/") {
+			return []byte(handle)
+		}
+	}
+	h.next++
+	handle := []byte(fmt.Sprintf("fh-%d", h.next))
 	cp := make([]string, len(path))
 	copy(cp, path)
 	h.handles[string(handle)] = cp
@@ -385,7 +395,8 @@ func (h *nfs4TestHandler) FromHandle(handle []byte) (billy.Filesystem, []string,
 	return h.fs, cp, nil
 }
 
-func (h *nfs4TestHandler) InvalidateHandle(billy.Filesystem, []byte) error {
+func (h *nfs4TestHandler) InvalidateHandle(_ billy.Filesystem, handle []byte) error {
+	delete(h.handles, string(handle))
 	return nil
 }
 
@@ -405,5 +416,47 @@ func TestNFSv4SupportedAttrsIncludeSettableTimes(t *testing.T) {
 		if !nfs4SupportedAttrs.has(attr) {
 			t.Errorf("writable attribute %d is not in supported_attrs", attr)
 		}
+	}
+}
+
+// A client keeps using a file's handle after renaming it. The handle names
+// the old path, so RENAME must make it stale, sending the client to look the
+// new name up, rather than leave it answering NFS4ERR_NOENT.
+func TestNFSv4RenameInvalidatesOldHandle(t *testing.T) {
+	srv, handler, fs := newNFS4TestServer(t)
+	f, err := fs.Create("old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	status, resp := nfs4RunCompound(t, srv, handler,
+		nfs4TestOp{nfs4OpPutRootFH, nil},
+		nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "old"}},
+		nfs4TestOp{nfs4OpGetFH, nil},
+	)
+	if status != nfs4OK {
+		t.Fatalf("LOOKUP: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
+	var fh []byte
+	nfs4ExpectOp(t, resp, nfs4OpGetFH, nfs4OK, &fh)
+
+	status, _ = nfs4RunCompound(t, srv, handler,
+		nfs4TestOp{nfs4OpPutRootFH, nil},
+		nfs4TestOp{nfs4OpSaveFH, nil},
+		nfs4TestOp{nfs4OpRename, nfs4RenameArgs{OldName: "old", NewName: "new"}},
+	)
+	if status != nfs4OK {
+		t.Fatalf("RENAME: status = %d", status)
+	}
+
+	getattr := nfs4TestOp{nfs4OpGetAttr, nfs4GetAttrArgs{Request: nfs4BitmapOf(nfs4AttrSize)}}
+	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutFH, nfs4PutFHArgs{Handle: fh}}, getattr); status != nfs4ErrStale {
+		t.Fatalf("GETATTR through the old handle: status = %d, want STALE", status)
+	}
+	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "new"}}, getattr); status != nfs4OK {
+		t.Fatalf("GETATTR of the new name: status = %d", status)
 	}
 }
