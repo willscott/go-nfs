@@ -19,6 +19,9 @@ type Server struct {
 	// filesystems it returns to be safe for concurrent use.
 	ConcurrentHandlers int
 	context.Context
+
+	// PanicHandler, when non-nil, recovers panics in request handlers; nil preserves today's behavior. See DefaultPanicHandler.
+	PanicHandler func(recovered any) ResponseCode
 }
 
 // RegisterMessageHandler registers a handler for a specific
