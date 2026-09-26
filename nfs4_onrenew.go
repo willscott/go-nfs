@@ -11,6 +11,5 @@ func nfs4OnRenew(c *nfs4Compound, args io.Reader, _ io.Writer) nfs4Status {
 	if status := nfs4Decode(args, &req); status != nfs4OK {
 		return status
 	}
-	c.w.Server.nfs4State().renewClient(req.ClientID)
-	return nfs4OK
+	return c.w.Server.nfs4State().renewClient(req.ClientID)
 }

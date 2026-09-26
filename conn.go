@@ -187,13 +187,13 @@ func (c *conn) serializeWrites(ctx context.Context) {
 // Handle a request. errors from this method indicate a failure to read or
 // write on the network stream, and trigger a disconnection of the connection.
 func (c *conn) handle(ctx context.Context, w *response) error {
-	handler := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
+	handler, rpcErr := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
 	if handler == nil {
-		Log.Debugf("No handler for %d.%d", w.req.Header.Prog, w.req.Header.Proc)
+		Log.Debugf("No handler for %d.%d.%d", w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
 		if err := w.drain(ctx); err != nil {
 			return err
 		}
-		return c.err(ctx, w, &ResponseCodeProcUnavailableError{})
+		return c.err(ctx, w, rpcErr)
 	}
 	appError := handler(ctx, w, c.Server.Handler)
 	if drainErr := w.drain(ctx); drainErr != nil {

@@ -108,7 +108,16 @@ func nfs4OnOpen(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if req.ShareAccess&(nfs4ShareAccessRead|nfs4ShareAccessWrite) == 0 {
 		return nfs4ErrInval
 	}
+	if req.OpenType == nfs4OpenCreate || req.ShareAccess&nfs4ShareAccessWrite != 0 {
+		if status := parent.ensureWritable(); status != nfs4OK {
+			return status
+		}
+	}
 
+	sm := c.w.Server.nfs4State()
+	if status := sm.checkClient(req.Owner.ClientID); status != nfs4OK {
+		return status
+	}
 	childPath := parent.child(req.File)
 	fullPath := nfs4Join(parent.fs, childPath)
 	before := parent.changeID()
@@ -140,8 +149,12 @@ func nfs4OnOpen(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status := c.setCurrent(parent.fs, childPath); status != nfs4OK {
 		return status
 	}
+	id, status := sm.open(req.Owner, fullPath)
+	if status != nfs4OK {
+		return status
+	}
 	return nfs4Encode(res, nfs4OpenRes{
-		StateID:    c.w.Server.nfs4State().open(req.Owner, fullPath),
+		StateID:    id,
 		CInfo:      nfs4ChangeInfo{Before: before, After: after},
 		RFlags:     nfs4OpenResultLocktypePosix,
 		AttrSet:    createAttrs.mask,

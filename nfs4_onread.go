@@ -25,7 +25,9 @@ func nfs4OnRead(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status != nfs4OK {
 		return status
 	}
-	c.w.Server.nfs4State().renewState(req.StateID)
+	if status := c.w.Server.nfs4State().checkIO(req.StateID); status != nfs4OK {
+		return status
+	}
 	if req.Count > nfs4MaxRead {
 		req.Count = nfs4MaxRead
 	}

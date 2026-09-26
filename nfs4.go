@@ -49,6 +49,7 @@ const (
 	nfs4ErrInval             nfs4Status = 22
 	nfs4ErrFBig              nfs4Status = 27
 	nfs4ErrNoSpc             nfs4Status = 28
+	nfs4ErrROFS              nfs4Status = 30
 	nfs4ErrNotEmpty          nfs4Status = 66
 	nfs4ErrStale             nfs4Status = 70
 	nfs4ErrBadHandle         nfs4Status = 10001
@@ -58,9 +59,12 @@ const (
 	nfs4ErrServerFault       nfs4Status = 10006
 	nfs4ErrBadType           nfs4Status = 10007
 	nfs4ErrDenied            nfs4Status = 10010
+	nfs4ErrExpired           nfs4Status = 10011
 	nfs4ErrResource          nfs4Status = 10018
 	nfs4ErrNoFileHandle      nfs4Status = 10020
 	nfs4ErrMinorVersMismatch nfs4Status = 10021
+	nfs4ErrStaleClientID     nfs4Status = 10022
+	nfs4ErrStaleStateID      nfs4Status = 10023
 	nfs4ErrBadStateID        nfs4Status = 10025
 	nfs4ErrAttrNotSupp       nfs4Status = 10032
 	nfs4ErrNoGrace           nfs4Status = 10033
@@ -333,6 +337,15 @@ func (fh *nfs4FileHandle) child(name string) []string {
 	return nfs4AppendPath(fh.path, name)
 }
 
+// ensureWritable refuses changes to a filesystem without billy's write
+// capability, as the NFSv3 procedures do.
+func (fh *nfs4FileHandle) ensureWritable() nfs4Status {
+	if !billy.CapabilityCheck(fh.fs, billy.WriteCapability) {
+		return nfs4ErrROFS
+	}
+	return nfs4OK
+}
+
 func (fh *nfs4FileHandle) ensureDir() nfs4Status {
 	info, err := fh.fs.Lstat(fh.fullPath())
 	if err != nil {
@@ -350,9 +363,13 @@ func (fh *nfs4FileHandle) changeID() uint64 {
 	return nfs4ChangeID(fh.fs, fh.path)
 }
 
-// nfs4Component checks a component4: a single, non-empty path element.
+// nfs4Component checks a component4: a single, non-empty path element that
+// names an entry of a directory. "." and ".." do not in NFSv4 (LOOKUPP
+// finds a parent), and joined onto a path they would reach the directory
+// or its parent, so REMOVE ".." could remove the parent and RENAME ".."
+// move it.
 func nfs4Component(name string) nfs4Status {
-	if name == "" || len(name) > nfs4OpaqueLimit || strings.ContainsAny(name, "/\x00") {
+	if name == "" || name == "." || name == ".." || len(name) > nfs4OpaqueLimit || strings.ContainsAny(name, "/\x00") {
 		return nfs4ErrBadName
 	}
 	return nfs4OK
@@ -429,6 +446,8 @@ func nfs4StatusFromNFS3(status NFSStatus) nfs4Status {
 		return nfs4ErrFBig
 	case NFSStatusNoSPC:
 		return nfs4ErrNoSpc
+	case NFSStatusROFS:
+		return nfs4ErrROFS
 	case NFSStatusNotEmpty:
 		return nfs4ErrNotEmpty
 	case NFSStatusStale:

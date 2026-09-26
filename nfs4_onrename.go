@@ -39,6 +39,12 @@ func nfs4OnRename(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status := target.ensureDir(); status != nfs4OK {
 		return status
 	}
+	if status := source.ensureWritable(); status != nfs4OK {
+		return status
+	}
+	if status := target.ensureWritable(); status != nfs4OK {
+		return status
+	}
 
 	// The client may still hold the file's handle, which names it by its
 	// old path; invalidated, it answers NFS4ERR_STALE and the client looks

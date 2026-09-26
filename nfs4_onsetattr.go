@@ -33,7 +33,12 @@ func nfs4SetAttr(c *nfs4Compound, args io.Reader) (nfs4Bitmap, nfs4Status) {
 	if status != nfs4OK {
 		return nil, status
 	}
-	c.w.Server.nfs4State().renewState(req.StateID)
+	if status := current.ensureWritable(); status != nfs4OK {
+		return nil, status
+	}
+	if status := c.w.Server.nfs4State().checkIO(req.StateID); status != nfs4OK {
+		return nil, status
+	}
 	if err := attrs.attrs.Apply(c.handler.Change(current.fs), current.fs, current.fullPath()); err != nil {
 		return nil, nfs4StatusFromErr(err)
 	}

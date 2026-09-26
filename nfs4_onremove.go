@@ -21,6 +21,9 @@ func nfs4OnRemove(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status := current.ensureDir(); status != nfs4OK {
 		return status
 	}
+	if status := current.ensureWritable(); status != nfs4OK {
+		return status
+	}
 	handle := c.handler.ToHandle(current.fs, current.child(req.Name))
 	before := current.changeID()
 	if err := current.fs.Remove(nfs4Join(current.fs, current.child(req.Name))); err != nil {

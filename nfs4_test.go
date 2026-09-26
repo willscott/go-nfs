@@ -121,11 +121,28 @@ func nfs4ExpectOp(t *testing.T, r io.Reader, op nfs4Op, status nfs4Status, res i
 	}
 }
 
-func nfs4OpenFile(name string, owner string, how *nfs4CreateHow) nfs4TestOp {
+// nfs4TestCompoundClient sets up a confirmed client ID for name with
+// SETCLIENTID and SETCLIENTID_CONFIRM.
+func nfs4TestCompoundClient(t *testing.T, srv *Server, handler Handler, name string) uint64 {
+	t.Helper()
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpSetClientID, nfs4SetClientIDArgs{Verifier: [8]byte{1}, ID: []byte(name)}})
+	if status != nfs4OK {
+		t.Fatalf("SETCLIENTID: status = %d", status)
+	}
+	var res nfs4SetClientIDRes
+	nfs4ExpectOp(t, resp, nfs4OpSetClientID, nfs4OK, &res)
+	confirm := nfs4SetClientIDConfirmArgs{ClientID: res.ClientID, Confirm: res.Confirm}
+	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpSetClientIDConfirm, confirm}); status != nfs4OK {
+		t.Fatalf("SETCLIENTID_CONFIRM: status = %d", status)
+	}
+	return res.ClientID
+}
+
+func nfs4OpenFile(clientID uint64, name string, owner string, how *nfs4CreateHow) nfs4TestOp {
 	args := nfs4OpenArgs{
 		Seqid:       1,
 		ShareAccess: nfs4ShareAccessRead | nfs4ShareAccessWrite,
-		Owner:       nfs4Owner{ClientID: 7, Owner: owner},
+		Owner:       nfs4Owner{ClientID: clientID, Owner: owner},
 		Claim:       nfs4ClaimNull,
 		File:        name,
 	}
@@ -173,13 +190,14 @@ func TestNFSv4CompoundPutRootFHGetAttr(t *testing.T) {
 
 func TestNFSv4OpenStateIDGenerations(t *testing.T) {
 	srv, handler, _ := newNFS4TestServer(t)
+	client := nfs4TestCompoundClient(t, srv, handler, "c")
 	unchecked := &nfs4CreateHow{Mode: nfs4CreateUnchecked}
 
 	open := func(name, owner string) nfs4OpenRes {
 		t.Helper()
 		status, resp := nfs4RunCompound(t, srv, handler,
 			nfs4TestOp{nfs4OpPutRootFH, nil},
-			nfs4OpenFile(name, owner, unchecked),
+			nfs4OpenFile(client, name, owner, unchecked),
 		)
 		if status != nfs4OK {
 			t.Fatalf("OPEN %s by %s: status = %d", name, owner, status)
@@ -228,9 +246,10 @@ func TestNFSv4OpenStateIDGenerations(t *testing.T) {
 
 func TestNFSv4ExclusiveCreateActsGuarded(t *testing.T) {
 	srv, handler, fs := newNFS4TestServer(t)
+	client := nfs4TestCompoundClient(t, srv, handler, "c")
 	exclusive := &nfs4CreateHow{Mode: nfs4CreateExclusive, Verifier: [8]byte{9}}
 
-	status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("new", "o", exclusive))
+	status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile(client, "new", "o", exclusive))
 	if status != nfs4OK {
 		t.Fatalf("exclusive create of a new file: status = %d", status)
 	}
@@ -238,7 +257,7 @@ func TestNFSv4ExclusiveCreateActsGuarded(t *testing.T) {
 		t.Fatalf("exclusive create made no file: %v", err)
 	}
 
-	status, _ = nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("new", "o", exclusive))
+	status, _ = nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile(client, "new", "o", exclusive))
 	if status != nfs4ErrExist {
 		t.Fatalf("exclusive create of an existing file: status = %d, want EXIST", status)
 	}
@@ -246,13 +265,14 @@ func TestNFSv4ExclusiveCreateActsGuarded(t *testing.T) {
 
 func TestNFSv4GuardedCreateAppliesAttributes(t *testing.T) {
 	srv, handler, fs := newNFS4TestServer(t)
+	client := nfs4TestCompoundClient(t, srv, handler, "c")
 	var vals bytes.Buffer
 	if err := xdr.Write(&vals, uint32(0640)); err != nil {
 		t.Fatal(err)
 	}
 	guarded := &nfs4CreateHow{Mode: nfs4CreateGuarded, GuardedAttrs: nfs4FAttr{Mask: nfs4BitmapOf(nfs4AttrMode), Vals: vals.Bytes()}}
 
-	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("f", "o", guarded))
+	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile(client, "f", "o", guarded))
 	if status != nfs4OK {
 		t.Fatalf("guarded create: status = %d", status)
 	}
@@ -291,17 +311,21 @@ func TestNFSv4SetAttrFailureCarriesAttrsSet(t *testing.T) {
 func TestNFSv4LockThroughCompound(t *testing.T) {
 	srv, handler, _ := newNFS4TestServer(t)
 	unchecked := &nfs4CreateHow{Mode: nfs4CreateUnchecked}
-	status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile("f", "o", unchecked))
-	if status != nfs4OK {
-		t.Fatalf("OPEN: status = %d", status)
-	}
-	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
-	var opened nfs4OpenRes
-	nfs4ExpectOp(t, resp, nfs4OpOpen, nfs4OK, &opened)
 	lookup := nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "f"}}
 
-	lock := func(clientID uint64, owner string) (nfs4Status, io.Reader) {
-		return nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, lookup, nfs4TestOp{nfs4OpLock, nfs4LockArgs{
+	// lock opens f as the client and locks it under that open.
+	lock := func(name string) (nfs4Owner, nfs4Status, io.Reader) {
+		client := nfs4TestCompoundClient(t, srv, handler, name)
+		status, resp := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4OpenFile(client, "f", "o", unchecked))
+		if status != nfs4OK {
+			t.Fatalf("OPEN: status = %d", status)
+		}
+		nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+		var opened nfs4OpenRes
+		nfs4ExpectOp(t, resp, nfs4OpOpen, nfs4OK, &opened)
+
+		owner := nfs4Owner{ClientID: client, Owner: name}
+		status, resp = nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, lookup, nfs4TestOp{nfs4OpLock, nfs4LockArgs{
 			LockType: nfs4WriteLT,
 			Offset:   0,
 			Length:   100,
@@ -309,33 +333,32 @@ func TestNFSv4LockThroughCompound(t *testing.T) {
 				NewLockOwner: true,
 				OpenOwner: nfs4OpenToLockOwner{
 					OpenStateID: opened.StateID,
-					LockOwner:   nfs4Owner{ClientID: clientID, Owner: owner},
+					LockOwner:   owner,
 				},
 			},
 		}})
+		nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+		nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
+		return owner, status, resp
 	}
 
-	status, resp = lock(1, "alice")
+	alice, status, resp := lock("alice")
 	if status != nfs4OK {
 		t.Fatalf("LOCK: status = %d", status)
 	}
-	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
-	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
 	var locked nfs4StateID
 	nfs4ExpectOp(t, resp, nfs4OpLock, nfs4OK, &locked)
-	if locked.Seqid != 1 || locked.Other == opened.StateID.Other {
+	if locked.Seqid != 1 {
 		t.Fatalf("lock stateid = %+v, want a new state at seqid 1", locked)
 	}
 
-	status, resp = lock(2, "bob")
+	_, status, resp = lock("bob")
 	if status != nfs4ErrDenied {
 		t.Fatalf("conflicting LOCK: status = %d, want DENIED", status)
 	}
-	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
-	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
 	var denied nfs4LockDenied
 	nfs4ExpectOp(t, resp, nfs4OpLock, nfs4ErrDenied, &denied)
-	want := nfs4LockDenied{Offset: 0, Length: 100, LockType: nfs4WriteLT, Owner: nfs4Owner{ClientID: 1, Owner: "alice"}}
+	want := nfs4LockDenied{Offset: 0, Length: 100, LockType: nfs4WriteLT, Owner: alice}
 	if denied != want {
 		t.Fatalf("denied = %+v, want %+v", denied, want)
 	}
@@ -458,5 +481,136 @@ func TestNFSv4RenameInvalidatesOldHandle(t *testing.T) {
 	}
 	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "new"}}, getattr); status != nfs4OK {
 		t.Fatalf("GETATTR of the new name: status = %d", status)
+	}
+}
+
+// nfs4ReadOnlyFS hides billy's write capability, as a read-only export does.
+type nfs4ReadOnlyFS struct{ billy.Filesystem }
+
+func (nfs4ReadOnlyFS) Capabilities() billy.Capability {
+	return billy.ReadCapability | billy.SeekCapability
+}
+
+func TestNFSv4ReadOnlyFilesystemRefusesChanges(t *testing.T) {
+	srv, _, fs := newNFS4TestServer(t)
+	handler := newNFSv4TestHandler(nfs4ReadOnlyFS{fs})
+	client := nfs4TestCompoundClient(t, srv, handler, "c")
+	if err := fs.MkdirAll("/d", 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create("/f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	root := nfs4TestOp{nfs4OpPutRootFH, nil}
+	lookup := nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "f"}}
+	readOpen := nfs4OpenFile(client, "f", "o", nil)
+	readArgs := readOpen.args.(nfs4OpenArgs)
+	readArgs.ShareAccess = nfs4ShareAccessRead
+	readOpen.args = readArgs
+	cases := []struct {
+		name string
+		ops  []nfs4TestOp
+	}{
+		{"WRITE", []nfs4TestOp{root, lookup, {nfs4OpWrite, nfs4WriteArgs{Data: []byte("x")}}}},
+		{"SETATTR", []nfs4TestOp{root, lookup, {nfs4OpSetAttr, nfs4SetAttrArgs{Attrs: nfs4FAttr{Mask: nfs4BitmapOf(nfs4AttrSize), Vals: make([]byte, 8)}}}}},
+		{"REMOVE", []nfs4TestOp{root, {nfs4OpRemove, nfs4RemoveArgs{Name: "f"}}}},
+		{"RENAME", []nfs4TestOp{root, {nfs4OpSaveFH, nil}, {nfs4OpRename, nfs4RenameArgs{OldName: "f", NewName: "g"}}}},
+		{"CREATE", []nfs4TestOp{root, {nfs4OpCreate, nfs4CreateArgs{Type: FileTypeDirectory, Name: "e"}}}},
+		{"OPEN create", []nfs4TestOp{root, nfs4OpenFile(client, "new", "o", &nfs4CreateHow{Mode: nfs4CreateUnchecked})}},
+		{"OPEN for write", []nfs4TestOp{root, nfs4OpenFile(client, "f", "o", nil)}},
+	}
+	for _, tc := range cases {
+		if status, _ := nfs4RunCompound(t, srv, handler, tc.ops...); status != nfs4ErrROFS {
+			t.Errorf("%s: status = %d, want ROFS", tc.name, status)
+		}
+	}
+	if info, err := fs.Stat("/f"); err != nil || info.Size() != 0 {
+		t.Fatalf("file changed on a read-only filesystem: %v, %v", info, err)
+	}
+	if _, err := fs.Stat("/new"); err == nil {
+		t.Fatal("OPEN created a file on a read-only filesystem")
+	}
+
+	if status, _ := nfs4RunCompound(t, srv, handler, root, readOpen); status != nfs4OK {
+		t.Fatalf("OPEN for read: status = %d", status)
+	}
+	status, resp := nfs4RunCompound(t, srv, handler, root, lookup, nfs4TestOp{nfs4OpAccess, nfs4AccessArgs{Access: 0x3f}})
+	if status != nfs4OK {
+		t.Fatalf("ACCESS: status = %d", status)
+	}
+	nfs4ExpectOp(t, resp, nfs4OpPutRootFH, nfs4OK, nil)
+	nfs4ExpectOp(t, resp, nfs4OpLookup, nfs4OK, nil)
+	var access nfs4AccessRes
+	nfs4ExpectOp(t, resp, nfs4OpAccess, nfs4OK, &access)
+	if want := nfs4AccessRead | nfs4AccessLookup | nfs4AccessExecute; access.Access != want {
+		t.Fatalf("ACCESS granted %#x, want %#x", access.Access, want)
+	}
+}
+
+func TestNFSv4StateFromAnotherServerIsStale(t *testing.T) {
+	srv, handler, fs := newNFS4TestServer(t)
+	f, err := fs.Create("/f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpRenew, nfs4RenewArgs{ClientID: 0x1234}}); status != nfs4ErrStaleClientID {
+		t.Fatalf("RENEW of an unknown client: status = %d, want STALE_CLIENTID", status)
+	}
+	stale := nfs4StateID{Seqid: 1, Other: [nfs4OtherSize]byte{1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 1}}
+	if stale.Other[0] == byte(srv.nfs4State().boot>>24) {
+		stale.Other[0]++
+	}
+	write := nfs4TestOp{nfs4OpWrite, nfs4WriteArgs{StateID: stale, Data: []byte("x")}}
+	if status, _ := nfs4RunCompound(t, srv, handler, nfs4TestOp{nfs4OpPutRootFH, nil}, nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "f"}}, write); status != nfs4ErrStaleStateID {
+		t.Fatalf("WRITE with another server's stateid: status = %d, want STALE_STATEID", status)
+	}
+	if info, _ := fs.Stat("/f"); info.Size() != 0 {
+		t.Fatal("WRITE with a stale stateid changed the file")
+	}
+}
+
+func TestNFSv4DotNamesAreBad(t *testing.T) {
+	srv, handler, fs := newNFS4TestServer(t)
+	client := nfs4TestCompoundClient(t, srv, handler, "c")
+	if err := fs.MkdirAll("/a/b", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.MkdirAll("/c", 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	root := nfs4TestOp{nfs4OpPutRootFH, nil}
+	inB := []nfs4TestOp{root, {nfs4OpLookup, nfs4LookupArgs{Name: "a"}}, {nfs4OpLookup, nfs4LookupArgs{Name: "b"}}}
+	withB := func(ops ...nfs4TestOp) []nfs4TestOp {
+		return append(append([]nfs4TestOp{}, inB...), ops...)
+	}
+	for _, name := range []string{".", ".."} {
+		cases := map[string][]nfs4TestOp{
+			"LOOKUP": withB(nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: name}}),
+			"REMOVE": withB(nfs4TestOp{nfs4OpRemove, nfs4RemoveArgs{Name: name}}),
+			"CREATE": withB(nfs4TestOp{nfs4OpCreate, nfs4CreateArgs{Type: FileTypeDirectory, Name: name}}),
+			"OPEN":   withB(nfs4OpenFile(client, name, "o", &nfs4CreateHow{Mode: nfs4CreateUnchecked})),
+			"RENAME from": withB(nfs4TestOp{nfs4OpSaveFH, nil}, root,
+				nfs4TestOp{nfs4OpLookup, nfs4LookupArgs{Name: "c"}},
+				nfs4TestOp{nfs4OpRename, nfs4RenameArgs{OldName: name, NewName: "x"}}),
+			"RENAME to": withB(nfs4TestOp{nfs4OpSaveFH, nil},
+				nfs4TestOp{nfs4OpRename, nfs4RenameArgs{OldName: "b", NewName: name}}),
+		}
+		for op, ops := range cases {
+			if status, _ := nfs4RunCompound(t, srv, handler, ops...); status != nfs4ErrBadName {
+				t.Errorf("%s %q: status = %d, want BADNAME", op, name, status)
+			}
+		}
+	}
+	if _, err := fs.Stat("/a/b"); err != nil {
+		t.Fatalf("/a/b is gone: %v", err)
+	}
+	if _, err := fs.Stat("/c/x"); err == nil {
+		t.Fatal("RENAME moved a directory named by \"..\"")
 	}
 }

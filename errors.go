@@ -136,6 +136,31 @@ func (r *ResponseCodeProcUnavailableError) MarshalBinary() (data []byte, err err
 	return []byte{}, nil
 }
 
+// ProgMismatchError is an RPCError for a call to a version of a program
+// that the server does not serve. It names the versions that are served.
+type ProgMismatchError struct {
+	Low  uint32
+	High uint32
+}
+
+// Code for ProgMismatchError is ResponseCodeProgMismatch
+func (p *ProgMismatchError) Code() ResponseCode {
+	return ResponseCodeProgMismatch
+}
+
+func (p *ProgMismatchError) Error() string {
+	return fmt.Sprintf("Program Mismatch: versions %d to %d are served.", p.Low, p.High)
+}
+
+// MarshalBinary sends the range of versions served, as the XDR
+// mismatch_info that follows PROG_MISMATCH.
+func (p *ProgMismatchError) MarshalBinary() (data []byte, err error) {
+	var resp [8]byte
+	binary.BigEndian.PutUint32(resp[0:4], p.Low)
+	binary.BigEndian.PutUint32(resp[4:8], p.High)
+	return resp[:], nil
+}
+
 // ResponseCodeSystemError is an RPCError
 type ResponseCodeSystemError struct {
 }

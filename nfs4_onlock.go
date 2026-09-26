@@ -55,7 +55,7 @@ func nfs4OnLock(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	var id nfs4StateID
 	var denied *nfs4LockDenied
 	if req.Locker.NewLockOwner {
-		id, denied, status = sm.lock(req.Locker.OpenOwner.LockOwner, current.fullPath(), r)
+		id, denied, status = sm.lock(req.Locker.OpenOwner.OpenStateID, req.Locker.OpenOwner.LockOwner, current.fullPath(), r)
 	} else {
 		id, denied, status = sm.lockByStateID(req.Locker.LockOwner.LockStateID, current.fullPath(), r)
 	}

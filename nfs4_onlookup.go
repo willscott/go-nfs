@@ -22,18 +22,7 @@ func nfs4OnLookup(c *nfs4Compound, args io.Reader, _ io.Writer) nfs4Status {
 		return status
 	}
 
-	var childPath []string
-	switch req.Name {
-	case ".":
-		childPath = nfs4CopyPath(current.path)
-	case "..":
-		if len(current.path) == 0 {
-			return nfs4ErrNoEnt
-		}
-		childPath = nfs4CopyPath(current.path[:len(current.path)-1])
-	default:
-		childPath = current.child(req.Name)
-	}
+	childPath := current.child(req.Name)
 	if _, err := current.fs.Lstat(nfs4Join(current.fs, childPath)); err != nil {
 		return nfs4StatusFromErr(err)
 	}

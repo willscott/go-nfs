@@ -1,6 +1,7 @@
 package nfs
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
@@ -74,16 +75,53 @@ func TestLockRangeValidation(t *testing.T) {
 	}
 }
 
+// nfs4TestClient returns a confirmed client ID for name.
+func nfs4TestClient(t *testing.T, sm *nfs4StateManager, name string) uint64 {
+	t.Helper()
+	id, confirm := sm.setClientID([]byte(name), [8]byte{1})
+	if status := sm.confirmClientID(id, confirm); status != nfs4OK {
+		t.Fatalf("confirming client %s: status = %d", name, status)
+	}
+	return id
+}
+
+func nfs4TestOpen(t *testing.T, sm *nfs4StateManager, owner nfs4Owner, path string) nfs4StateID {
+	t.Helper()
+	id, status := sm.open(owner, path)
+	if status != nfs4OK {
+		t.Fatalf("open %s: status = %d", path, status)
+	}
+	return id
+}
+
+// nfs4TestLock locks as a lock owner new to path, under an open of path by
+// an open owner of the same client.
+func nfs4TestLock(t *testing.T, sm *nfs4StateManager, owner nfs4Owner, path string, r LockRange) (nfs4StateID, *nfs4LockDenied, nfs4Status) {
+	t.Helper()
+	open := nfs4TestOpen(t, sm, nfs4Owner{ClientID: owner.ClientID, Owner: "open"}, path)
+	return sm.lock(open, owner, path, r)
+}
+
+func nfs4LockStates(sm *nfs4StateManager) int {
+	n := 0
+	for _, st := range sm.states {
+		if st.kind == nfs4LockState {
+			n++
+		}
+	}
+	return n
+}
+
 func TestLockDelegatesToLockerWithNFS4Owner(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
-	owner := nfs4Owner{ClientID: 0xab, Owner: "o"}
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
 
-	if _, _, status := sm.lock(owner, "/f", mustRange(t, 10, 20, nfs4WriteLT)); status != nfs4OK {
+	if _, _, status := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 10, 20, nfs4WriteLT)); status != nfs4OK {
 		t.Fatalf("lock: status = %d", status)
 	}
 	want := fakeLockCall{
-		owner: LockOwner{Client: "nfs4/ab", Owner: "o"},
+		owner: LockOwner{Client: "nfs4/" + strconv.FormatUint(owner.ClientID, 16), Owner: "o"},
 		path:  "/f",
 		r:     LockRange{Start: 10, End: 30, Exclusive: true},
 	}
@@ -102,14 +140,14 @@ func TestLockDelegatesToLockerWithNFS4Owner(t *testing.T) {
 func TestLockDeniedDescribesConflictingHolder(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
-	requester := nfs4Owner{ClientID: 2, Owner: "bob"}
+	requester := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "bob"}
 
 	// Held by another NFSv4 client: its client ID round-trips.
 	locker.conflict = &LockConflict{
 		LockRange: LockRange{Start: 0, End: 100, Exclusive: true},
 		Owner:     LockOwner{Client: "nfs4/1", Owner: "alice"},
 	}
-	_, denied, status := sm.lock(requester, "/f", mustRange(t, 50, 10, nfs4ReadLT))
+	_, denied, status := nfs4TestLock(t, sm, requester, "/f", mustRange(t, 50, 10, nfs4ReadLT))
 	if status != nfs4ErrDenied {
 		t.Fatalf("lock over conflict: status = %d, want DENIED", status)
 	}
@@ -117,7 +155,7 @@ func TestLockDeniedDescribesConflictingHolder(t *testing.T) {
 	if *denied != want {
 		t.Fatalf("denied = %+v, want %+v", *denied, want)
 	}
-	if len(sm.states) != 0 {
+	if nfs4LockStates(sm) != 0 {
 		t.Fatal("a denied lock must not create lock state")
 	}
 
@@ -139,9 +177,9 @@ func TestLockDeniedDescribesConflictingHolder(t *testing.T) {
 func TestLockStateReuseAndSeqid(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
-	owner := nfs4Owner{ClientID: 1, Owner: "o"}
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
 
-	id, _, status := sm.lock(owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+	id, _, status := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
 	if status != nfs4OK {
 		t.Fatalf("lock: status = %d", status)
 	}
@@ -171,22 +209,28 @@ func TestLockStateReuseAndSeqid(t *testing.T) {
 		t.Fatalf("locker unlock calls = %+v", locker.unlocks)
 	}
 
-	if _, _, status := sm.lock(owner, "/g", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4OK {
+	if _, _, status := nfs4TestLock(t, sm, owner, "/g", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4OK {
 		t.Fatalf("lock /g: status = %d", status)
 	}
-	if len(sm.states) != 2 {
-		t.Fatalf("states = %d, want one per (owner, file)", len(sm.states))
+	if n := nfs4LockStates(sm); n != 2 {
+		t.Fatalf("lock states = %d, want one per (owner, file)", n)
 	}
 }
 
 func TestUnlockBadStateID(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
-	if _, status := sm.unlock(nfs4StateID{}, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
-		t.Fatalf("unlock with unknown stateid: status = %d, want BAD_STATEID", status)
+	if _, status := sm.unlock(nfs4StateID{}, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrStaleStateID {
+		t.Fatalf("unlock with another server's stateid: status = %d, want STALE_STATEID", status)
 	}
 
-	id, _, _ := sm.lock(nfs4Owner{ClientID: 1, Owner: "o"}, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
+	id, _, _ := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+	unknown := id
+	unknown.Other[11]++
+	if _, status := sm.unlock(unknown, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
+		t.Fatalf("unlock with unknown stateid: status = %d, want BAD_STATEID", status)
+	}
 	if _, status := sm.unlock(id, "/WRONG", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
 		t.Fatalf("unlock with wrong path: status = %d, want BAD_STATEID", status)
 	}
@@ -194,31 +238,38 @@ func TestUnlockBadStateID(t *testing.T) {
 		t.Fatalf("lockByStateID with wrong path: status = %d, want BAD_STATEID", status)
 	}
 
-	open := sm.open(nfs4Owner{ClientID: 1, Owner: "o"}, "/f")
+	open := nfs4TestOpen(t, sm, owner, "/f")
 	if _, status := sm.unlock(open, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
 		t.Fatalf("unlock with an open stateid: status = %d, want BAD_STATEID", status)
 	}
 	if _, status := sm.close(id); status != nfs4ErrBadStateID {
 		t.Fatalf("close with a lock stateid: status = %d, want BAD_STATEID", status)
 	}
-	if len(locker.unlocks) != 0 {
+	if _, _, status := sm.lock(id, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
+		t.Fatalf("new lock owner under a lock stateid: status = %d, want BAD_STATEID", status)
+	}
+	other := nfs4Owner{ClientID: nfs4TestClient(t, sm, "other"), Owner: "o"}
+	if _, _, status := sm.lock(open, other, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrBadStateID {
+		t.Fatalf("new lock owner under another client's open: status = %d, want BAD_STATEID", status)
+	}
+	if len(locker.unlocks) != 0 || len(locker.locks) != 1 {
 		t.Fatal("bad stateids must not reach the locker")
 	}
 }
 
 func TestOpenStateGenerations(t *testing.T) {
 	sm := newNFS4StateManager(&fakeLocker{})
-	owner := nfs4Owner{ClientID: 1, Owner: "o"}
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
 
-	first := sm.open(owner, "/f")
+	first := nfs4TestOpen(t, sm, owner, "/f")
 	if first.Seqid != 1 {
 		t.Fatalf("first open seqid = %d, want 1", first.Seqid)
 	}
-	if again := sm.open(owner, "/f"); again.Other != first.Other || again.Seqid != 2 {
+	if again := nfs4TestOpen(t, sm, owner, "/f"); again.Other != first.Other || again.Seqid != 2 {
 		t.Fatalf("second open = %+v, want the same state at seqid 2", again)
 	}
 	// The same bytes as a lock owner name a different owner.
-	lock, _, _ := sm.lock(owner, "/f", mustRange(t, 0, 1, nfs4WriteLT))
+	lock, _, _ := sm.lock(first, owner, "/f", mustRange(t, 0, 1, nfs4WriteLT))
 	if lock.Other == first.Other {
 		t.Fatal("open and lock state must have different stateids")
 	}
@@ -234,7 +285,7 @@ func TestOpenStateGenerations(t *testing.T) {
 	if _, status := sm.updateOpen(closed); status != nfs4ErrBadStateID {
 		t.Fatalf("downgrade after close: status = %d, want BAD_STATEID", status)
 	}
-	if reopened := sm.open(owner, "/f"); reopened.Other == first.Other || reopened.Seqid != 1 {
+	if reopened := nfs4TestOpen(t, sm, owner, "/f"); reopened.Other == first.Other || reopened.Seqid != 1 {
 		t.Fatalf("reopen after close = %+v, want a new state at seqid 1", reopened)
 	}
 }
@@ -242,20 +293,21 @@ func TestOpenStateGenerations(t *testing.T) {
 func TestLockLimitMapsToResource(t *testing.T) {
 	locker := &fakeLocker{err: ErrLockLimit}
 	sm := newNFS4StateManager(locker)
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
 
-	if _, _, status := sm.lock(nfs4Owner{ClientID: 1, Owner: "o"}, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrResource {
+	if _, _, status := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrResource {
 		t.Fatalf("lock over limit: status = %d, want RESOURCE", status)
 	}
-	if len(sm.states) != 0 {
+	if nfs4LockStates(sm) != 0 {
 		t.Fatal("a refused lock must not create lock state")
 	}
 }
 
 func TestNilLockerDisablesLocking(t *testing.T) {
 	sm := newNFS4StateManager(nil)
-	owner := nfs4Owner{ClientID: 1, Owner: "o"}
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
 
-	if _, _, status := sm.lock(owner, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrNotSupp {
+	if _, _, status := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrNotSupp {
 		t.Fatalf("lock: status = %d, want NOTSUPP", status)
 	}
 	if _, status := sm.test(owner, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrNotSupp {
@@ -264,27 +316,31 @@ func TestNilLockerDisablesLocking(t *testing.T) {
 	if _, status := sm.unlock(nfs4StateID{}, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrNotSupp {
 		t.Fatalf("unlock: status = %d, want NOTSUPP", status)
 	}
-	sm.releaseOwner(owner)
-	sm.renewClient(owner.ClientID)
-	if id := sm.open(owner, "/f"); id.Seqid != 1 {
-		t.Fatalf("open without a locker = %+v, want seqid 1", id)
+	if status := sm.releaseOwner(owner); status != nfs4OK {
+		t.Fatalf("release owner: status = %d", status)
+	}
+	if status := sm.renewClient(owner.ClientID); status != nfs4OK {
+		t.Fatalf("renew: status = %d", status)
 	}
 }
 
 func TestReleaseOwnerDropsStateAndRanges(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
-	owner := nfs4Owner{ClientID: 1, Owner: "o"}
-	other := nfs4Owner{ClientID: 1, Owner: "p"}
-	id, _, _ := sm.lock(owner, "/f", mustRange(t, 0, 100, nfs4WriteLT))
-	sm.lock(owner, "/g", mustRange(t, 0, 100, nfs4WriteLT))
-	sm.lock(other, "/f", mustRange(t, 200, 100, nfs4WriteLT))
-	open := sm.open(owner, "/f")
+	client := nfs4TestClient(t, sm, "c")
+	owner := nfs4Owner{ClientID: client, Owner: "o"}
+	other := nfs4Owner{ClientID: client, Owner: "p"}
+	id, _, _ := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 100, nfs4WriteLT))
+	nfs4TestLock(t, sm, owner, "/g", mustRange(t, 0, 100, nfs4WriteLT))
+	nfs4TestLock(t, sm, other, "/f", mustRange(t, 200, 100, nfs4WriteLT))
+	open := nfs4TestOpen(t, sm, owner, "/f")
 
-	sm.releaseOwner(owner)
+	if status := sm.releaseOwner(owner); status != nfs4OK {
+		t.Fatalf("release owner: status = %d", status)
+	}
 
-	if len(sm.states) != 2 {
-		t.Fatalf("states = %d, want the other owner's lock and the open", len(sm.states))
+	if n := nfs4LockStates(sm); n != 1 {
+		t.Fatalf("lock states = %d, want the other owner's", n)
 	}
 	if _, status := sm.unlock(id, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4ErrBadStateID {
 		t.Fatalf("released stateid: status = %d, want BAD_STATEID", status)
@@ -297,36 +353,70 @@ func TestReleaseOwnerDropsStateAndRanges(t *testing.T) {
 	}
 }
 
-func TestLeaseExpiryReleasesClientState(t *testing.T) {
+func TestLeaseExpiryReleasesClientStateAndTellsTheClient(t *testing.T) {
 	locker := &fakeLocker{}
 	sm := newNFS4StateManager(locker)
 	current := time.Unix(1000, 0)
 	sm.now = func() time.Time { return current }
 
-	dead := nfs4Owner{ClientID: 1, Owner: "dead"}
-	deadLock, _, status := sm.lock(dead, "/f", mustRange(t, 0, 100, nfs4WriteLT))
+	dead := nfs4Owner{ClientID: nfs4TestClient(t, sm, "dead"), Owner: "dead"}
+	live := nfs4Owner{ClientID: nfs4TestClient(t, sm, "live"), Owner: "live"}
+	deadLock, _, status := nfs4TestLock(t, sm, dead, "/f", mustRange(t, 0, 100, nfs4WriteLT))
 	if status != nfs4OK {
 		t.Fatal("setup lock failed")
 	}
-	deadOpen := sm.open(dead, "/f")
+	deadOpen := nfs4TestOpen(t, sm, dead, "/f")
 
 	// A live client's activity after the grace window expires the dead one.
-	current = current.Add(nfs4LeaseGracePeriods*nfs4LeaseTimeSecs*time.Second + time.Second)
-	live := nfs4Owner{ClientID: 2, Owner: "live"}
-	if _, _, status := sm.lock(live, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4OK {
-		t.Fatalf("live lock after dead lease expiry: status = %d, want OK", status)
+	current = current.Add(nfs4LeaseGrace / 2)
+	if status := sm.renewClient(live.ClientID); status != nfs4OK {
+		t.Fatalf("live RENEW: status = %d", status)
 	}
-	if _, seen := sm.clientSeen[dead.ClientID]; seen {
-		t.Fatal("dead client lease record should be gone")
+	current = current.Add(nfs4LeaseGrace/2 + time.Second)
+	if _, status := sm.test(live, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4OK {
+		t.Fatalf("live lock test after dead lease expiry: status = %d, want OK", status)
 	}
-	if len(locker.releasedClients) != 1 || locker.releasedClients[0] != "nfs4/1" {
-		t.Fatalf("locker released clients = %v, want [nfs4/1]", locker.releasedClients)
+	if len(locker.releasedClients) != 1 || locker.releasedClients[0] != nfs4LockClient(dead.ClientID) {
+		t.Fatalf("locker released clients = %v, want [%s]", locker.releasedClients, nfs4LockClient(dead.ClientID))
 	}
 	if _, ok := sm.states[deadLock.Other]; ok {
 		t.Fatal("dead client's lock state should be dropped")
 	}
 	if _, ok := sm.states[deadOpen.Other]; ok {
 		t.Fatal("dead client's open state should be dropped")
+	}
+
+	// When the dead client comes back, it learns its lease expired.
+	if status := sm.renewClient(dead.ClientID); status != nfs4ErrExpired {
+		t.Fatalf("RENEW of an expired client: status = %d, want EXPIRED", status)
+	}
+	if _, status := sm.open(dead, "/f"); status != nfs4ErrExpired {
+		t.Fatalf("OPEN by an expired client: status = %d, want EXPIRED", status)
+	}
+	if _, status := sm.test(dead, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4ErrExpired {
+		t.Fatalf("LOCKT by an expired client: status = %d, want EXPIRED", status)
+	}
+
+	// Having recovered, it has a new lease.
+	again := nfs4TestClient(t, sm, "dead")
+	if again == dead.ClientID {
+		t.Fatal("recovered client got its expired client ID back")
+	}
+	if status := sm.renewClient(again); status != nfs4OK {
+		t.Fatalf("RENEW after recovery: status = %d", status)
+	}
+}
+
+func TestIdleClientIsExpiredWhenItReturns(t *testing.T) {
+	sm := newNFS4StateManager(&fakeLocker{})
+	current := time.Unix(1000, 0)
+	sm.now = func() time.Time { return current }
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
+	open := nfs4TestOpen(t, sm, owner, "/f")
+
+	current = current.Add(nfs4LeaseGrace + time.Second)
+	if status := sm.checkIO(open); status != nfs4ErrExpired {
+		t.Fatalf("READ after the lease ran out: status = %d, want EXPIRED", status)
 	}
 }
 
@@ -336,27 +426,127 @@ func TestRenewKeepsLeaseAlive(t *testing.T) {
 	current := time.Unix(1000, 0)
 	sm.now = func() time.Time { return current }
 
-	holder := nfs4Owner{ClientID: 1, Owner: "holder"}
-	if _, _, status := sm.lock(holder, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4OK {
+	holder := nfs4Owner{ClientID: nfs4TestClient(t, sm, "holder"), Owner: "holder"}
+	if _, _, status := nfs4TestLock(t, sm, holder, "/f", mustRange(t, 0, 100, nfs4WriteLT)); status != nfs4OK {
 		t.Fatal("setup lock failed")
 	}
-	open := sm.open(holder, "/f")
+	open := nfs4TestOpen(t, sm, holder, "/f")
 
 	// Renew inside the window repeatedly, by RENEW and by I/O presenting a
 	// stateid; nothing may expire even though a second client stays active
 	// well past the original grace deadline.
-	other := nfs4Owner{ClientID: 2, Owner: "other"}
+	other := nfs4Owner{ClientID: nfs4TestClient(t, sm, "other"), Owner: "other"}
 	for i := 0; i < 10; i++ {
 		current = current.Add(nfs4LeaseTimeSecs * time.Second)
+		var status nfs4Status
 		if i%2 == 0 {
-			sm.renewClient(holder.ClientID)
+			status = sm.renewClient(holder.ClientID)
 		} else {
-			sm.renewState(open)
+			status = sm.checkIO(open)
+		}
+		if status != nfs4OK {
+			t.Fatalf("renewal %d: status = %d", i, status)
 		}
 		sm.test(other, "/f", mustRange(t, 0, 100, nfs4WriteLT))
 	}
 	if len(locker.releasedClients) != 0 {
 		t.Fatalf("renewed client was expired: released %v", locker.releasedClients)
+	}
+}
+
+func TestStateFromBeforeRestartIsStale(t *testing.T) {
+	before := newNFS4StateManager(&fakeLocker{})
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, before, "c"), Owner: "o"}
+	open := nfs4TestOpen(t, before, owner, "/f")
+	lock, _, _ := before.lock(open, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+
+	after := newNFS4StateManager(&fakeLocker{})
+	if after.boot == before.boot {
+		after.boot++
+	}
+	nfs4TestClient(t, after, "someone else")
+	nfs4TestOpen(t, after, nfs4Owner{ClientID: nfs4TestClient(t, after, "x"), Owner: "o"}, "/g")
+
+	if status := after.renewClient(owner.ClientID); status != nfs4ErrStaleClientID {
+		t.Fatalf("RENEW with a client ID from before a restart: status = %d, want STALE_CLIENTID", status)
+	}
+	if status := after.checkIO(open); status != nfs4ErrStaleStateID {
+		t.Fatalf("READ with an open stateid from before a restart: status = %d, want STALE_STATEID", status)
+	}
+	if _, status := after.close(open); status != nfs4ErrStaleStateID {
+		t.Fatalf("CLOSE with a stateid from before a restart: status = %d, want STALE_STATEID", status)
+	}
+	if _, status := after.unlock(lock, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4ErrStaleStateID {
+		t.Fatalf("LOCKU with a stateid from before a restart: status = %d, want STALE_STATEID", status)
+	}
+}
+
+func TestSetClientID(t *testing.T) {
+	locker := &fakeLocker{}
+	sm := newNFS4StateManager(locker)
+
+	id, confirm := sm.setClientID([]byte("c"), [8]byte{1})
+	if status := sm.renewClient(id); status != nfs4ErrStaleClientID {
+		t.Fatalf("RENEW before confirmation: status = %d, want STALE_CLIENTID", status)
+	}
+	if status := sm.confirmClientID(id, [8]byte{9}); status != nfs4ErrStaleClientID {
+		t.Fatalf("confirm with the wrong verifier: status = %d, want STALE_CLIENTID", status)
+	}
+	if status := sm.confirmClientID(id, confirm); status != nfs4OK {
+		t.Fatalf("confirm: status = %d", status)
+	}
+	if status := sm.confirmClientID(id, confirm); status != nfs4OK {
+		t.Fatalf("retransmitted confirm: status = %d", status)
+	}
+	owner := nfs4Owner{ClientID: id, Owner: "o"}
+	lock, _, _ := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+
+	// The same boot verifier keeps the client ID and its state.
+	if same, confirm := sm.setClientID([]byte("c"), [8]byte{1}); same != id {
+		t.Fatalf("SETCLIENTID with the same verifier = %x, want %x", same, id)
+	} else if status := sm.confirmClientID(same, confirm); status != nfs4OK {
+		t.Fatalf("confirm: status = %d", status)
+	}
+	if _, status := sm.unlock(lock, "/f", mustRange(t, 0, 10, nfs4WriteLT)); status != nfs4OK {
+		t.Fatalf("lock state after SETCLIENTID with the same verifier: status = %d", status)
+	}
+
+	// A new boot verifier means the client rebooted: once the new ID is
+	// confirmed, the old one and its state are gone.
+	rebooted, confirm := sm.setClientID([]byte("c"), [8]byte{2})
+	if rebooted == id {
+		t.Fatal("rebooted client got its old client ID")
+	}
+	if status := sm.renewClient(id); status != nfs4OK {
+		t.Fatalf("old client ID before the new one is confirmed: status = %d", status)
+	}
+	if status := sm.confirmClientID(rebooted, confirm); status != nfs4OK {
+		t.Fatalf("confirm: status = %d", status)
+	}
+	if status := sm.renewClient(id); status != nfs4ErrStaleClientID {
+		t.Fatalf("replaced client ID: status = %d, want STALE_CLIENTID", status)
+	}
+	if len(sm.states) != 0 || len(locker.releasedClients) != 1 {
+		t.Fatalf("replaced client's state not released: %d states, released %v", len(sm.states), locker.releasedClients)
+	}
+}
+
+func TestCheckIOSpecialStateIDs(t *testing.T) {
+	sm := newNFS4StateManager(&fakeLocker{})
+	if status := sm.checkIO(nfs4AnonymousStateID); status != nfs4OK {
+		t.Fatalf("anonymous stateid: status = %d", status)
+	}
+	if status := sm.checkIO(nfs4BypassStateID); status != nfs4OK {
+		t.Fatalf("bypass stateid: status = %d", status)
+	}
+	owner := nfs4Owner{ClientID: nfs4TestClient(t, sm, "c"), Owner: "o"}
+	lock, _, _ := nfs4TestLock(t, sm, owner, "/f", mustRange(t, 0, 10, nfs4WriteLT))
+	if status := sm.checkIO(lock); status != nfs4OK {
+		t.Fatalf("lock stateid: status = %d", status)
+	}
+	lock.Other[11]++
+	if status := sm.checkIO(lock); status != nfs4ErrBadStateID {
+		t.Fatalf("unknown stateid: status = %d, want BAD_STATEID", status)
 	}
 }
 

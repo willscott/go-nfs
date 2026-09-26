@@ -7,7 +7,10 @@ type nfs4SetClientIDConfirmArgs struct {
 	Confirm  [8]byte
 }
 
-func nfs4OnSetClientIDConfirm(_ *nfs4Compound, args io.Reader, _ io.Writer) nfs4Status {
+func nfs4OnSetClientIDConfirm(c *nfs4Compound, args io.Reader, _ io.Writer) nfs4Status {
 	var req nfs4SetClientIDConfirmArgs
-	return nfs4Decode(args, &req)
+	if status := nfs4Decode(args, &req); status != nfs4OK {
+		return status
+	}
+	return c.w.Server.nfs4State().confirmClientID(req.ClientID, req.Confirm)
 }

@@ -55,7 +55,7 @@ func sendCall(t *testing.T, c net.Conn, xid, proc uint32) {
 	t.Helper()
 	fields := []uint32{
 		xid, 0, 2, // xid, CALL, RPC version 2
-		testProgram, 3, proc, // RegisterMessageHandler registers version 3
+		testProgram, 3, proc, // RegisterMessageHandler serves every version
 		0, 0, // credential: AUTH_NONE, empty
 		0, 0, // verifier: AUTH_NONE, empty
 	}

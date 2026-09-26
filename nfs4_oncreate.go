@@ -46,6 +46,9 @@ func nfs4OnCreate(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status := parent.ensureDir(); status != nfs4OK {
 		return status
 	}
+	if status := parent.ensureWritable(); status != nfs4OK {
+		return status
+	}
 
 	childPath := parent.child(req.Name)
 	before := parent.changeID()

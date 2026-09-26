@@ -25,9 +25,14 @@ func nfs4OnAccess(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status := nfs4Decode(args, &req); status != nfs4OK {
 		return status
 	}
-	if _, status := c.requireCurrent(); status != nfs4OK {
+	current, status := c.requireCurrent()
+	if status != nfs4OK {
 		return status
 	}
 	supported := nfs4AccessRead | nfs4AccessLookup | nfs4AccessModify | nfs4AccessExtend | nfs4AccessDelete | nfs4AccessExecute
-	return nfs4Encode(res, nfs4AccessRes{Supported: supported, Access: req.Access & supported})
+	granted := supported
+	if current.ensureWritable() != nfs4OK {
+		granted = nfs4AccessRead | nfs4AccessLookup | nfs4AccessExecute
+	}
+	return nfs4Encode(res, nfs4AccessRes{Supported: supported, Access: req.Access & granted})
 }

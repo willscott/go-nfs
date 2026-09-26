@@ -30,7 +30,12 @@ func nfs4OnWrite(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if status != nfs4OK {
 		return status
 	}
-	c.w.Server.nfs4State().renewState(req.StateID)
+	if status := current.ensureWritable(); status != nfs4OK {
+		return status
+	}
+	if status := c.w.Server.nfs4State().checkIO(req.StateID); status != nfs4OK {
+		return status
+	}
 	info, err := current.fs.Stat(current.fullPath())
 	if err != nil {
 		return nfs4StatusFromErr(err)
