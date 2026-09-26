@@ -128,3 +128,56 @@ func TestCachingHandlerConcurrentInvalidateHandle(t *testing.T) {
 
 	wg.Wait()
 }
+
+// An export's root handle must keep working however many other handles the
+// server hands out: an NFSv3 client holds the one it got at mount for the
+// life of that mount, so losing it to the cache makes every path under it
+// stale and the mount unusable.
+func TestCachingHandlerKeepsRootHandle(t *testing.T) {
+	fs := memfs.New()
+	if err := fs.MkdirAll("/", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := NewCachingHandler(NewNullAuthHandler(fs), 8)
+
+	root := h.ToHandle(fs, []string{})
+	if same := h.ToHandle(fs, []string{}); string(same) != string(root) {
+		t.Fatal("the root was given a second handle")
+	}
+
+	for i := 0; i < 100; i++ {
+		h.ToHandle(fs, []string{"dir", fmt.Sprint(i)})
+	}
+
+	gotFS, path, err := h.FromHandle(root)
+	if err != nil {
+		t.Fatalf("root handle went stale after 100 other handles: %v", err)
+	}
+	if gotFS != fs || len(path) != 0 {
+		t.Fatalf("root handle resolved to %v, want the export root", path)
+	}
+}
+
+// Paths whose handles have all been evicted are forgotten. The reverse map
+// used to keep a key for every path the server ever handed a handle out
+// for, which on a busy export grows without bound: a soak run spent a
+// quarter of the gateway's heap on it.
+func TestCachingHandlerForgetsEvictedPaths(t *testing.T) {
+	fs := memfs.New()
+	if err := fs.MkdirAll("/", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const limit = 8
+	h := NewCachingHandler(NewNullAuthHandler(fs), limit).(*CachingHandler)
+
+	for i := 0; i < 500; i++ {
+		h.ToHandle(fs, []string{"dir", fmt.Sprint(i)})
+	}
+
+	h.reverseHandlesMu.RLock()
+	paths := len(h.reverseHandles)
+	h.reverseHandlesMu.RUnlock()
+	if paths > limit {
+		t.Fatalf("the reverse map holds %d paths for a cache of %d handles", paths, limit)
+	}
+}
