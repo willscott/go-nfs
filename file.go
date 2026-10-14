@@ -107,7 +107,16 @@ func ToFileAttribute(info os.FileInfo, filePath string) *FileAttribute {
 		f.Type = FileTypeRegular
 	}
 	// The number of hard links to the file.
-	f.Nlink = 1
+	// POSIX convention: directories have nlink >= 2 (self "." + parent entry).
+	// macOS NFS client uses nlink as an optimization hint — nlink == 1 on a
+	// directory signals "no subdirectories" and causes ReadDir to be skipped
+	// entirely. This breaks any virtual filesystem where file.GetInfo returns
+	// nil (no real inode data to populate nlink).
+	if info.IsDir() {
+		f.Nlink = 2
+	} else {
+		f.Nlink = 1
+	}
 
 	if a := file.GetInfo(info); a != nil {
 		f.Nlink = a.Nlink
