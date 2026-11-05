@@ -93,10 +93,14 @@ func (f *trackingFile) Close() error {
 	return f.File.Close()
 }
 
+var setDebugOnce sync.Once
+
 func TestNFS(t *testing.T) {
-	if testing.Verbose() {
-		util.DefaultLogger.SetDebug(true)
-	}
+	setDebugOnce.Do(func() {
+		if testing.Verbose() {
+			util.DefaultLogger.SetDebug(true)
+		}
+	})
 
 	// make an empty in-memory server.
 	listener, err := net.Listen("tcp", "localhost:0")
@@ -441,9 +445,11 @@ func nfsRead(target *nfsc.Target, filePath string, offset uint64, count uint32) 
 }
 
 func TestReadEOF(t *testing.T) {
-	if testing.Verbose() {
-		util.DefaultLogger.SetDebug(true)
-	}
+	setDebugOnce.Do(func() {
+		if testing.Verbose() {
+			util.DefaultLogger.SetDebug(true)
+		}
+	})
 
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
