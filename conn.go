@@ -49,6 +49,9 @@ type conn struct {
 // wsize at 1 MiB, so real requests stay well under this.
 const maxRequestFragmentBytes = 16 << 20
 
+// RFC 5531 section 8.2 limits each opaque_auth body to 400 bytes.
+const maxAuthBytes = 400
+
 func (c *conn) serve(ctx context.Context) {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -65,11 +68,8 @@ func (c *conn) serve(ctx context.Context) {
 	for {
 		w, err := c.readRequestHeader(connCtx, bio)
 		if err != nil {
-			if err == io.EOF {
-				// Clean close.
-				c.Close()
-				return
-			}
+			// A malformed header is terminal, just like a clean close.
+			c.Close()
 			return
 		}
 		Log.Tracef("request: %v", w.req)
@@ -415,7 +415,9 @@ func (c *conn) readRequestHeader(ctx context.Context, reader *bufio.Reader) (w *
 		rpc.Header{},
 		&r,
 	}
-	if err = xdr.Read(&r, &req.Header); err != nil {
+	// Limit authentication lengths before the decoder allocates their bodies.
+	// The record's LimitedReader bounds reads, but not XDR allocations.
+	if _, err = xdr2.UnmarshalLimited(&r, &req.Header, maxAuthBytes); err != nil {
 		return nil, err
 	}
 
