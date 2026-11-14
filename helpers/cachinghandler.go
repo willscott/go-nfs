@@ -30,6 +30,8 @@ func NewCachingHandlerWithVerifierLimit(h nfs.Handler, limit int, verifierLimit 
 		Handler:         h,
 		activeHandles:   cache,
 		reverseHandles:  make(map[string][]uuid.UUID),
+		rootHandles:     make(map[uuid.UUID]entry),
+		rootByPath:      make(map[string]uuid.UUID),
 		activeVerifiers: verifiers,
 		cacheLimit:      limit,
 	}
@@ -43,6 +45,62 @@ type CachingHandler struct {
 	reverseHandlesMu sync.RWMutex
 	activeVerifiers  *lru.Cache[uint64, verifier]
 	cacheLimit       int
+	// rootHandles are the handles of export roots, which are never evicted.
+	// An NFSv3 client holds the root handle it got at mount for as long as
+	// that mount lives, so losing it to the cache makes every path under it
+	// stale and the mount unusable until it is mounted again. NFSv4 clients
+	// re-resolve the root with PUTROOTFH and do not notice.
+	rootHandles map[uuid.UUID]entry
+	rootByPath  map[string]uuid.UUID
+	rootMu      sync.RWMutex
+}
+
+// isRoot reports whether path names an export's root.
+func isRoot(path []string) bool {
+	for _, p := range path {
+		if p != "" && p != "." && p != "/" {
+			return false
+		}
+	}
+	return true
+}
+
+// rootHandle returns the pinned handle for an export root, taking one the
+// first time the root is asked for.
+func (c *CachingHandler) rootHandle(f billy.Filesystem, joinedPath string, path []string) []byte {
+	c.rootMu.RLock()
+	if id, ok := c.rootByPath[joinedPath]; ok {
+		entry, ok := c.rootHandles[id]
+		c.rootMu.RUnlock()
+		if ok && reflect.DeepEqual(entry.f, f) {
+			return id[:]
+		}
+	} else {
+		c.rootMu.RUnlock()
+	}
+
+	c.rootMu.Lock()
+	defer c.rootMu.Unlock()
+	if id, ok := c.rootByPath[joinedPath]; ok {
+		if entry, ok := c.rootHandles[id]; ok && reflect.DeepEqual(entry.f, f) {
+			return id[:]
+		}
+	}
+	id := uuid.New()
+	newPath := make([]string, len(path))
+	copy(newPath, path)
+	c.rootHandles[id] = entry{f, newPath}
+	c.rootByPath[joinedPath] = id
+	b, _ := id.MarshalBinary()
+	return b
+}
+
+// fromRootHandle resolves a pinned export root handle.
+func (c *CachingHandler) fromRootHandle(id uuid.UUID) (entry, bool) {
+	c.rootMu.RLock()
+	defer c.rootMu.RUnlock()
+	e, ok := c.rootHandles[id]
+	return e, ok
 }
 
 type entry struct {
@@ -55,6 +113,10 @@ type entry struct {
 // but we can generalize with a stateful local cache of handed out IDs.
 func (c *CachingHandler) ToHandle(f billy.Filesystem, path []string) []byte {
 	joinedPath := f.Join(path...)
+
+	if isRoot(path) {
+		return c.rootHandle(f, joinedPath, path)
+	}
 
 	if handle := c.searchReverseCache(f, joinedPath); handle != nil {
 		return handle
@@ -84,20 +146,34 @@ func (c *CachingHandler) FromHandle(fh []byte) (billy.Filesystem, []string, erro
 		return nil, []string{}, err
 	}
 
+	if e, ok := c.fromRootHandle(id); ok {
+		newP := make([]string, len(e.p))
+		copy(newP, e.p)
+		return e.f, newP, nil
+	}
+
 	if f, ok := c.activeHandles.Get(id); ok {
-		for _, k := range c.activeHandles.Keys() {
-			candidate, _ := c.activeHandles.Peek(k)
-			if hasPrefix(f.p, candidate.p) {
-				_, _ = c.activeHandles.Get(k)
-			}
-		}
-		if ok {
-			newP := make([]string, len(f.p))
-			copy(newP, f.p)
-			return f.f, newP, nil
-		}
+		c.touchAncestors(f)
+		newP := make([]string, len(f.p))
+		copy(newP, f.p)
+		return f.f, newP, nil
 	}
 	return nil, []string{}, &nfs.NFSStatusError{NFSStatus: nfs.NFSStatusStale}
+}
+
+// touchAncestors marks the handles of e's parent directories as recently
+// used, so a directory is not evicted while files under it are in use.
+// Looking them up by path costs the depth of the path; walking the whole
+// cache, as this used to, cost an operation per cached handle on every
+// request.
+func (c *CachingHandler) touchAncestors(e entry) {
+	for i := len(e.p) - 1; i > 0; i-- {
+		for _, id := range c.getReverseHandles(e.f.Join(e.p[:i]...)) {
+			if candidate, ok := c.activeHandles.Get(id); ok && reflect.DeepEqual(candidate.f, e.f) {
+				break
+			}
+		}
+	}
 }
 
 func (c *CachingHandler) searchReverseCache(f billy.Filesystem, path string) []byte {
@@ -124,7 +200,15 @@ func (c *CachingHandler) evictReverseCache(path string, handle uuid.UUID) {
 	}
 	for i, u := range uuids {
 		if u == handle {
-			c.reverseHandles[path] = append(uuids[:i], uuids[i+1:]...)
+			remaining := append(uuids[:i], uuids[i+1:]...)
+			if len(remaining) == 0 {
+				// The last handle for this path is gone, so forget the
+				// path itself: keeping the key leaks an entry for every
+				// file the server ever handed out a handle for.
+				delete(c.reverseHandles, path)
+				return
+			}
+			c.reverseHandles[path] = remaining
 			return
 		}
 	}
@@ -157,18 +241,6 @@ func (c *CachingHandler) InvalidateHandle(fs billy.Filesystem, handle []byte) er
 // HandleLimit exports how many file handles can be safely stored by this cache.
 func (c *CachingHandler) HandleLimit() int {
 	return c.cacheLimit
-}
-
-func hasPrefix(path, prefix []string) bool {
-	if len(prefix) > len(path) {
-		return false
-	}
-	for i, e := range prefix {
-		if path[i] != e {
-			return false
-		}
-	}
-	return true
 }
 
 type verifier struct {
