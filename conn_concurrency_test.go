@@ -3,6 +3,7 @@ package nfs
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -129,17 +130,21 @@ func TestDefaultHandlesRequestsInOrder(t *testing.T) {
 
 // A record-marking length far beyond any real request is refused before
 // anything is buffered for it.
-func TestConcurrentHandlersRejectOversizedRequest(t *testing.T) {
-	c := startTestServer(t, &Server{ConcurrentHandlers: 4})
-	var mark [4]byte
-	binary.BigEndian.PutUint32(mark[:], (maxRequestFragmentBytes+1)|1<<31)
-	if _, err := c.Write(mark[:]); err != nil {
-		t.Fatal(err)
-	}
-	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Read(make([]byte, 1)); err == nil {
-		t.Fatal("connection stayed open after an oversized request")
-	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
-		t.Fatal("server neither answered nor closed the connection")
+func TestHandlersRejectOversizedRequest(t *testing.T) {
+	for _, limit := range []int{0, 1, 4} {
+		t.Run(fmt.Sprintf("ConcurrentHandlers=%d", limit), func(t *testing.T) {
+			c := startTestServer(t, &Server{ConcurrentHandlers: limit})
+			var mark [4]byte
+			binary.BigEndian.PutUint32(mark[:], (maxRequestFragmentBytes+1)|1<<31)
+			if _, err := c.Write(mark[:]); err != nil {
+				t.Fatal(err)
+			}
+			_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			if _, err := c.Read(make([]byte, 1)); err == nil {
+				t.Fatal("connection stayed open after an oversized request")
+			} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Fatal("server neither answered nor closed the connection")
+			}
+		})
 	}
 }
