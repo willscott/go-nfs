@@ -28,7 +28,7 @@ type writeArgs struct {
 	Data   []byte
 }
 
-func onWrite(ctx context.Context, w *response, userHandle Handler) error {
+func onWrite(ctx context.Context, w *response, userHandle Handler) (retErr error) {
 	w.errorFmt = wccDataErrorFormatter
 	var req writeArgs
 	if err := xdr.Read(w.req.Body, &req); err != nil {
@@ -68,6 +68,12 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 	if err != nil {
 		return &NFSStatusError{NFSStatusAccess, err}
 	}
+	fileOpen := true
+	defer func() {
+		if fileOpen {
+			retErr = joinOperationAndCloseError(retErr, file.Close())
+		}
+	}()
 	if req.Offset > 0 {
 		if _, err := file.Seek(int64(req.Offset), io.SeekStart); err != nil {
 			return &NFSStatusError{NFSStatusIO, err}
@@ -82,9 +88,11 @@ func onWrite(ctx context.Context, w *response, userHandle Handler) error {
 		Log.Errorf("Error writing: %v", err)
 		return &NFSStatusError{statusFromWriteError(err), err}
 	}
-	if err := file.Close(); err != nil {
-		Log.Errorf("error closing: %v", err)
-		return &NFSStatusError{statusFromWriteError(err), err}
+	closeErr := file.Close()
+	fileOpen = false
+	if closeErr != nil {
+		Log.Errorf("error closing: %v", closeErr)
+		return &NFSStatusError{statusFromWriteError(closeErr), closeErr}
 	}
 
 	writer := bytes.NewBuffer([]byte{})

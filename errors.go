@@ -222,6 +222,46 @@ func (s *NFSStatusError) Unwrap() error {
 	return s.WrappedErr
 }
 
+// operationCloseError retains both an operation failure and its subsequent
+// Close failure on Go versions predating errors.Join.
+type operationCloseError struct {
+	operationErr error
+	closeErr     error
+}
+
+func (e *operationCloseError) Error() string {
+	return fmt.Sprintf("%v; close failed: %v", e.operationErr, e.closeErr)
+}
+
+// Unwrap retains the operation error as the primary cause.
+func (e *operationCloseError) Unwrap() error { return e.operationErr }
+
+// Is also examines the Close error, which Unwrap does not reach.
+func (e *operationCloseError) Is(target error) bool {
+	return errors.Is(e.operationErr, target) || errors.Is(e.closeErr, target)
+}
+
+// As also examines the Close error, which Unwrap does not reach.
+func (e *operationCloseError) As(target interface{}) bool {
+	return errors.As(e.operationErr, target) || errors.As(e.closeErr, target)
+}
+
+// joinOperationAndCloseError preserves an existing NFS status and its wire
+// formatting while retaining both causes.
+func joinOperationAndCloseError(operationErr, closeErr error) error {
+	if operationErr == nil {
+		return closeErr
+	}
+	if closeErr == nil {
+		return operationErr
+	}
+	if statusErr, ok := operationErr.(*NFSStatusError); ok {
+		statusErr.WrappedErr = joinOperationAndCloseError(statusErr.WrappedErr, closeErr)
+		return statusErr
+	}
+	return &operationCloseError{operationErr: operationErr, closeErr: closeErr}
+}
+
 // StatusErrorWithBody is an NFS error with a payload.
 type StatusErrorWithBody struct {
 	NFSStatusError

@@ -199,7 +199,7 @@ type SetFileAttributes struct {
 
 // Apply uses a `Change` implementation to set defined attributes on a
 // provided file.
-func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) error {
+func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, file string) (retErr error) {
 	curOS, err := fs.Lstat(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return &NFSStatusError{NFSStatusNoEnt, os.ErrNotExist}
@@ -255,14 +255,22 @@ func (s *SetFileAttributes) Apply(changer billy.Change, fs billy.Filesystem, fil
 		} else if err != nil {
 			return err
 		}
+		fileOpen := true
+		defer func() {
+			if fileOpen {
+				retErr = joinOperationAndCloseError(retErr, fp.Close())
+			}
+		}()
 		if *s.SetSize > math.MaxInt64 {
 			return &NFSStatusError{NFSStatusInval, os.ErrInvalid}
 		}
 		if err := fp.Truncate(int64(*s.SetSize)); err != nil {
 			return err
 		}
-		if err := fp.Close(); err != nil {
-			return err
+		closeErr := fp.Close()
+		fileOpen = false
+		if closeErr != nil {
+			return closeErr
 		}
 	}
 
