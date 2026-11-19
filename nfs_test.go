@@ -2,10 +2,11 @@ package nfs_test
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"os"
 	"reflect"
@@ -71,7 +72,7 @@ func (t *trackingFS) OpenFile(filename string, flag int, perm os.FileMode) (bill
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	id := rand.Int63()
+	id := rand.Int64()
 	t.open[id] = OpenArgs{filename, flag, perm}
 	closer := func() {
 		delete(t.open, id)
@@ -117,8 +118,13 @@ func TestNFS(t *testing.T) {
 	}()
 
 	// File needs to exist in the root for memfs to acknowledge the root exists.
-	r, _ := mem.Create("/test")
-	r.Close()
+	r, err := mem.Create("/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	handler := helpers.NewNullAuthHandler(mem)
 	cacheHelper := helpers.NewCachingHandler(handler, 1024)
@@ -165,7 +171,7 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	b := []byte("hello world")
 	_, err = f.Write(b)
 	if err != nil {
@@ -176,7 +182,7 @@ func TestNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mf.Close()
+	defer func() { _ = mf.Close() }()
 	buf := make([]byte, len(b))
 	if _, err = mf.Read(buf[:]); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatal(err)
@@ -201,7 +207,9 @@ func TestNFS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	manyEntitiesPlus, err := target.ReadDirPlus("/")
@@ -461,7 +469,7 @@ func TestReadEOF(t *testing.T) {
 	// Create a 64KB file with random content.
 	const fileSize = 64 * 1024
 	fileData := make([]byte, fileSize)
-	if _, err := rand.Read(fileData); err != nil {
+	if _, err := crand.Read(fileData); err != nil {
 		t.Fatal(err)
 	}
 	f, err := mem.Create("/testfile")
@@ -471,7 +479,9 @@ func TestReadEOF(t *testing.T) {
 	if _, err := f.Write(fileData); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	handler := helpers.NewNullAuthHandler(mem)
 	cacheHelper := helpers.NewCachingHandler(handler, 1024)

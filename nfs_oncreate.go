@@ -27,13 +27,14 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		return &NFSStatusError{NFSStatusInval, err}
 	}
 	var attrs *SetFileAttributes
-	if how == createModeUnchecked || how == createModeGuarded {
+	switch how {
+	case createModeUnchecked, createModeGuarded:
 		sattr, err := ReadSetFileAttributes(w.req.Body)
 		if err != nil {
 			return &NFSStatusError{NFSStatusInval, err}
 		}
 		attrs = sattr
-	} else if how == createModeExclusive {
+	case createModeExclusive:
 		// read createverf3
 		var verf [8]byte
 		if err := xdr.Read(w.req.Body, &verf); err != nil {
@@ -42,7 +43,7 @@ func onCreate(ctx context.Context, w *response, userHandle Handler) error {
 		Log.Errorf("failing create to indicate lack of support for 'exclusive' mode.")
 		// TODO: support 'exclusive' mode.
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrPermission}
-	} else {
+	default:
 		// invalid
 		return &NFSStatusError{NFSStatusNotSupp, os.ErrInvalid}
 	}

@@ -9,6 +9,14 @@ func TestHandlerForVersions(t *testing.T) {
 	const anyProg, versionedProg = 0x20000101, 0x20000102
 	unversioned := func(context.Context, *response, Handler) error { return nil }
 	v2 := func(context.Context, *response, Handler) error { return nil }
+	// registrations are process-global; drop ours so the test can rerun (-count).
+	t.Cleanup(func() {
+		for id := range registeredHandlers {
+			if id.protocol == anyProg || id.protocol == versionedProg {
+				delete(registeredHandlers, id)
+			}
+		}
+	})
 	if err := RegisterMessageHandler(anyProg, 1, unversioned); err != nil {
 		t.Fatal(err)
 	}

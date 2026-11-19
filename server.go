@@ -86,7 +86,7 @@ var registeredHandlers map[registeredHandlerID]HandleFunc
 
 // Serve listens on the provided listener port for incoming client requests.
 func (s *Server) Serve(l net.Listener) error {
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	baseCtx := context.Background()
 	if s.Context != nil {
 		baseCtx = s.Context

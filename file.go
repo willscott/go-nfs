@@ -350,10 +350,11 @@ func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	if aTime == 1 {
+	switch aTime {
+	case 1:
 		now := time.Now()
 		attrs.SetAtime = &now
-	} else if aTime == 2 {
+	case 2:
 		t := FileTime{}
 		if err := xdr.Read(r, &t); err != nil {
 			return nil, err
@@ -364,10 +365,11 @@ func ReadSetFileAttributes(r io.Reader) (*SetFileAttributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	if mTime == 1 {
+	switch mTime {
+	case 1:
 		now := time.Now()
 		attrs.SetMtime = &now
-	} else if mTime == 2 {
+	case 2:
 		t := FileTime{}
 		if err := xdr.Read(r, &t); err != nil {
 			return nil, err

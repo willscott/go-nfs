@@ -35,7 +35,7 @@ func nfs4OnRead(c *nfs4Compound, args io.Reader, res io.Writer) nfs4Status {
 	if err != nil {
 		return nfs4StatusFromErr(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data := make([]byte, req.Count)
 	n, err := file.ReadAt(data, int64(req.Offset))

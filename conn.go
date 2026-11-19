@@ -69,7 +69,7 @@ func (c *conn) serve(ctx context.Context) {
 		w, err := c.readRequestHeader(connCtx, bio)
 		if err != nil {
 			// A malformed header is terminal, just like a clean close.
-			c.Close()
+			_ = c.Close()
 			return
 		}
 		Log.Tracef("request: %v", w.req)
@@ -78,12 +78,12 @@ func (c *conn) serve(ctx context.Context) {
 		if err != nil {
 			Log.Errorf("error handling req: %v", err)
 			// failure to handle at a level needing to close the connection.
-			c.Close()
+			_ = c.Close()
 			return
 		}
 		if respErr != nil {
 			Log.Errorf("error sending response: %v", respErr)
-			c.Close()
+			_ = c.Close()
 			return
 		}
 	}
@@ -111,13 +111,13 @@ func (c *conn) serveConcurrently(ctx context.Context, cancel context.CancelFunc,
 		if err != nil {
 			// A clean close, or a request that can't be framed: either way
 			// nothing more can be read from this connection.
-			c.Close()
+			_ = c.Close()
 			return
 		}
 		Log.Tracef("request: %v", w.req)
 		if err := w.bufferBody(); err != nil {
 			Log.Errorf("error reading request body: %v", err)
-			c.Close()
+			_ = c.Close()
 			return
 		}
 
@@ -137,13 +137,13 @@ func (c *conn) serveConcurrently(ctx context.Context, cancel context.CancelFunc,
 				Log.Errorf("error handling req: %v", err)
 				// failure to handle at a level needing to close the connection.
 				cancel()
-				c.Close()
+				_ = c.Close()
 				return
 			}
 			if respErr != nil && respErr != context.Canceled {
 				Log.Errorf("error sending response: %v", respErr)
 				cancel()
-				c.Close()
+				_ = c.Close()
 			}
 		}(w)
 	}
@@ -187,9 +187,9 @@ func (c *conn) serializeWrites(ctx context.Context) {
 // Handle a request. errors from this method indicate a failure to read or
 // write on the network stream, and trigger a disconnection of the connection.
 func (c *conn) handle(ctx context.Context, w *response) error {
-	handler, rpcErr := c.Server.handlerFor(w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
+	handler, rpcErr := c.Server.handlerFor(w.req.Prog, w.req.Vers, w.req.Proc)
 	if handler == nil {
-		Log.Debugf("No handler for %d.%d.%d", w.req.Header.Prog, w.req.Header.Vers, w.req.Header.Proc)
+		Log.Debugf("No handler for %d.%d.%d", w.req.Prog, w.req.Vers, w.req.Proc)
 		if err := w.drain(ctx); err != nil {
 			return err
 		}
@@ -244,22 +244,23 @@ type request struct {
 }
 
 func (r *request) String() string {
-	if r.Header.Prog == nfsServiceID {
-		if r.Header.Vers == nfs4Version {
-			switch r.Header.Proc {
+	switch r.Prog {
+	case nfsServiceID:
+		if r.Vers == nfs4Version {
+			switch r.Proc {
 			case nfs4ProcNull:
 				return fmt.Sprintf("RPC #%d (nfs4.Null)", r.xid)
 			case nfs4ProcCompound:
 				return fmt.Sprintf("RPC #%d (nfs4.Compound)", r.xid)
 			default:
-				return fmt.Sprintf("RPC #%d (nfs4.%d)", r.xid, r.Header.Proc)
+				return fmt.Sprintf("RPC #%d (nfs4.%d)", r.xid, r.Proc)
 			}
 		}
-		return fmt.Sprintf("RPC #%d (nfs.%s)", r.xid, NFSProcedure(r.Header.Proc))
-	} else if r.Header.Prog == mountServiceID {
-		return fmt.Sprintf("RPC #%d (mount.%s)", r.xid, MountProcedure(r.Header.Proc))
+		return fmt.Sprintf("RPC #%d (nfs.%s)", r.xid, NFSProcedure(r.Proc))
+	case mountServiceID:
+		return fmt.Sprintf("RPC #%d (mount.%s)", r.xid, MountProcedure(r.Proc))
 	}
-	return fmt.Sprintf("RPC #%d (%d.%d)", r.xid, r.Header.Prog, r.Header.Proc)
+	return fmt.Sprintf("RPC #%d (%d.%d)", r.xid, r.Prog, r.Proc)
 }
 
 type response struct {

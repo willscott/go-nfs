@@ -14,23 +14,24 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v3
-      with:
-        go-version: ^1.19
-      id: go
-
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
 
     - name: Get dependencies
-      run: go get -v -t -d ./...
+      run: go mod download
 
     - name: Build
       run: go build -v ./...
 
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.15
 
     - name: Test
       run: go test -v .
