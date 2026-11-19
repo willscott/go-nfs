@@ -251,14 +251,21 @@ func (f *file) Seek(offset int64, whence int) (int64, error) {
 		return 0, os.ErrClosed
 	}
 
+	var pos int64
 	switch whence {
 	case io.SeekCurrent:
-		f.position += offset
+		pos = f.position + offset
 	case io.SeekStart:
-		f.position = offset
+		pos = offset
 	case io.SeekEnd:
-		f.position = int64(f.content.Len()) + offset
+		pos = int64(f.content.Len()) + offset
+	default:
+		return 0, os.ErrInvalid
 	}
+	if pos < 0 {
+		return 0, &os.PathError{Op: "seek", Path: f.name, Err: os.ErrInvalid}
+	}
+	f.position = pos
 
 	return f.position, nil
 }
