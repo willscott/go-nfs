@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	xdr2 "github.com/rasky/go-xdr/xdr2"
 	"github.com/willscott/go-nfs-client/nfs/rpc"
@@ -40,8 +41,23 @@ const (
 
 type conn struct {
 	*Server
-	writeSerializer chan []byte
 	net.Conn
+	writeSerializer chan []byte
+	// cancel ends the connection: it cancels the context its requests are
+	// handled with, which closes the network connection.
+	cancel context.CancelFunc
+
+	// idleMu guards idle, which is true while the connection waits for its
+	// next request, so Shutdown can interrupt the read without cutting off
+	// a request.
+	idleMu sync.Mutex
+	idle   bool
+}
+
+// Close closes the network connection. Server and net.Conn both have a
+// Close method; this one keeps conn a net.Conn for Handler.Mount.
+func (c *conn) Close() error {
+	return c.Conn.Close()
 }
 
 // maxRequestFragmentBytes rejects implausible record-marking lengths before a
@@ -52,44 +68,77 @@ const maxRequestFragmentBytes = 16 << 20
 // RFC 5531 section 8.2 limits each opaque_auth body to 400 bytes.
 const maxAuthBytes = 400
 
+// serve handles requests from the connection until it closes, the server
+// shuts down, or ctx ends.
+//
+// When the client closes the connection or the server shuts down
+// gracefully, the requests already read are still answered before the
+// connection is closed. Any other failure cancels them and closes the
+// connection at once. Either way, serve returns only after every goroutine
+// it started has finished.
 func (c *conn) serve(ctx context.Context) {
-	connCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	defer c.cancel()
+	// Closing the connection is what unblocks reads and writes, so do it as
+	// soon as ctx ends.
+	closeConn := sync.OnceFunc(func() { _ = c.Conn.Close() })
+	stop := context.AfterFunc(ctx, closeConn)
+	defer func() {
+		stop()
+		closeConn()
+	}()
 
-	if c.Server.ConcurrentHandlers > 1 {
-		c.serveConcurrently(connCtx, cancel, c.Server.ConcurrentHandlers)
-		return
+	limit := max(c.Server.ConcurrentHandlers, 1)
+	c.writeSerializer = make(chan []byte, limit)
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		c.serializeWrites()
+	}()
+
+	var handlers sync.WaitGroup
+	var graceful bool
+	if limit > 1 {
+		graceful = c.readConcurrently(ctx, &handlers, limit)
+	} else {
+		graceful = c.readSequentially(ctx)
 	}
+	if !graceful {
+		c.cancel()
+	}
+	handlers.Wait()
+	// Nothing sends to writeSerializer any more; let the writer flush what
+	// is queued and stop.
+	close(c.writeSerializer)
+	<-writerDone
+}
 
-	c.writeSerializer = make(chan []byte, 1)
-	go c.serializeWrites(connCtx)
-
+// readSequentially handles requests one at a time, in order. It reports
+// whether the connection ended gracefully, so replies already queued
+// should still be sent.
+func (c *conn) readSequentially(ctx context.Context) bool {
 	bio := bufio.NewReader(c.Conn)
 	for {
-		w, err := c.readRequestHeader(connCtx, bio)
-		if err != nil {
-			// A malformed header is terminal, just like a clean close.
-			_ = c.Close()
-			return
+		w, ok, graceful := c.nextRequest(ctx, bio)
+		if !ok {
+			return graceful
 		}
-		Log.Tracef("request: %v", w.req)
-		err = c.handle(connCtx, w)
-		respErr := w.finish(connCtx)
+		err := c.handle(ctx, w)
+		respErr := w.finish(ctx)
 		if err != nil {
 			Log.Errorf("error handling req: %v", err)
 			// failure to handle at a level needing to close the connection.
-			_ = c.Close()
-			return
+			return false
 		}
 		if respErr != nil {
-			Log.Errorf("error sending response: %v", respErr)
-			_ = c.Close()
-			return
+			if respErr != context.Canceled {
+				Log.Errorf("error sending response: %v", respErr)
+			}
+			return false
 		}
 	}
 }
 
-// serveConcurrently handles up to limit requests from the connection at once.
+// readConcurrently handles up to limit requests from the connection at once.
 // Linux clients multiplex every process's I/O on a mount over one TCP
 // connection, so handling requests one at a time lets a single slow
 // operation stall the whole mount. RPC replies carry the request's XID, so
@@ -97,38 +146,26 @@ func (c *conn) serve(ctx context.Context) {
 //
 // Each request body is read into memory before its handler starts, so the
 // loop can read the next request while earlier ones are still running.
-func (c *conn) serveConcurrently(ctx context.Context, cancel context.CancelFunc, limit int) {
-	c.writeSerializer = make(chan []byte, limit)
-	go c.serializeWrites(ctx)
-
+// Handlers run in handlers; the caller waits for them.
+func (c *conn) readConcurrently(ctx context.Context, handlers *sync.WaitGroup, limit int) bool {
 	sem := make(chan struct{}, limit)
-	var wg sync.WaitGroup
-	defer wg.Wait()
-
 	bio := bufio.NewReader(c.Conn)
 	for {
-		w, err := c.readRequestHeader(ctx, bio)
-		if err != nil {
-			// A clean close, or a request that can't be framed: either way
-			// nothing more can be read from this connection.
-			_ = c.Close()
-			return
+		w, ok, graceful := c.nextRequest(ctx, bio)
+		if !ok {
+			return graceful
 		}
-		Log.Tracef("request: %v", w.req)
 		if err := w.bufferBody(); err != nil {
 			Log.Errorf("error reading request body: %v", err)
-			_ = c.Close()
-			return
+			return false
 		}
 
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			return
+			return false
 		}
-		wg.Add(1)
-		go func(w *response) {
-			defer wg.Done()
+		handlers.Go(func() {
 			defer func() { <-sem }()
 
 			err := c.handle(ctx, w)
@@ -136,52 +173,93 @@ func (c *conn) serveConcurrently(ctx context.Context, cancel context.CancelFunc,
 			if err != nil {
 				Log.Errorf("error handling req: %v", err)
 				// failure to handle at a level needing to close the connection.
-				cancel()
-				_ = c.Close()
+				c.cancel()
 				return
 			}
 			if respErr != nil && respErr != context.Canceled {
 				Log.Errorf("error sending response: %v", respErr)
-				cancel()
-				_ = c.Close()
+				c.cancel()
 			}
-		}(w)
+		})
 	}
 }
 
-func (c *conn) serializeWrites(ctx context.Context) {
-	// todo: maybe don't need the extra buffer
+// nextRequest reads the header of the next request. When there is none, ok
+// is false, and graceful reports whether the connection ended cleanly: the
+// client closed it, or the server is shutting down.
+func (c *conn) nextRequest(ctx context.Context, bio *bufio.Reader) (w *response, ok, graceful bool) {
+	if !c.setIdle(true) {
+		return nil, false, true
+	}
+	w, err := c.readRequestHeader(ctx, bio)
+	c.setIdle(false)
+	if err != nil {
+		// A clean close, or a request that can't be framed: either way
+		// nothing more can be read from this connection.
+		return nil, false, err == io.EOF || c.Server.inShutdown.Load()
+	}
+	Log.Tracef("request: %v", w.req)
+	return w, true, false
+}
+
+// setIdle marks whether the connection is waiting for its next request.
+// Marking it idle fails once the server is shutting down: the connection
+// should take no new requests.
+func (c *conn) setIdle(idle bool) bool {
+	c.idleMu.Lock()
+	defer c.idleMu.Unlock()
+	if idle && c.Server.inShutdown.Load() {
+		return false
+	}
+	c.idle = idle
+	if !idle && c.Server.inShutdown.Load() {
+		// Shutdown may have interrupted the read just as a request arrived.
+		// Let the rest of it be read.
+		_ = c.Conn.SetReadDeadline(time.Time{})
+	}
+	return true
+}
+
+// interruptIdleRead ends the wait for the next request if the connection is
+// waiting for one, for Shutdown. A connection handling a request is left to
+// finish it; it then sees the shutdown and takes no more.
+func (c *conn) interruptIdleRead() {
+	c.idleMu.Lock()
+	defer c.idleMu.Unlock()
+	if c.idle {
+		// A deadline in the past fails the pending read without closing
+		// the connection, so queued replies can still be written.
+		_ = c.Conn.SetReadDeadline(time.Unix(1, 0))
+	}
+}
+
+// serializeWrites writes replies to the connection in the order they are
+// queued, until writeSerializer is closed. If a write fails, the
+// connection is ended.
+func (c *conn) serializeWrites() {
 	writer := bufio.NewWriter(c.Conn)
 	var fragmentBuf [4]byte
-	var fragmentInt uint32
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-c.writeSerializer:
-			if !ok {
-				return
-			}
-			// prepend the fragmentation header
-			fragmentInt = uint32(len(msg))
-			fragmentInt |= (1 << 31)
-			binary.BigEndian.PutUint32(fragmentBuf[:], fragmentInt)
-			n, err := writer.Write(fragmentBuf[:])
-			if n < 4 || err != nil {
-				return
-			}
-			n, err = writer.Write(msg)
-			if err != nil {
-				return
-			}
-			if n < len(msg) {
-				panic("todo: ensure writes complete fully.")
-			}
-			if err = writer.Flush(); err != nil {
-				return
-			}
+	for msg := range c.writeSerializer {
+		// prepend the fragmentation header
+		binary.BigEndian.PutUint32(fragmentBuf[:], uint32(len(msg))|1<<31)
+		if _, err := writer.Write(fragmentBuf[:]); err != nil {
+			break
+		}
+		if _, err := writer.Write(msg); err != nil {
+			break
+		}
+		// Flush once no more replies are waiting, so a burst goes out in
+		// fewer writes.
+		if len(c.writeSerializer) > 0 {
+			continue
+		}
+		if err := writer.Flush(); err != nil {
+			break
 		}
 	}
+	// Either writeSerializer was closed and the connection is ending, or a
+	// write failed and it must: no more replies can be sent.
+	c.cancel()
 }
 
 // Handle a request. errors from this method indicate a failure to read or
@@ -359,7 +437,8 @@ func (w *response) drain(ctx context.Context) error {
 		if reader.N == 0 {
 			return nil
 		}
-		// todo: wrap body in a context reader.
+		// Ending the connection's context closes the connection, which
+		// unblocks this read.
 		_, err := io.CopyN(io.Discard, w.req.Body, reader.N)
 		if err == nil || err == io.EOF {
 			return nil

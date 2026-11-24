@@ -22,9 +22,12 @@ var releaseSlow = make(chan chan struct{}, 1)
 
 func init() {
 	_ = RegisterMessageHandler(testProgram, testProcSlow, func(ctx context.Context, w *response, _ Handler) error {
-		release := <-releaseSlow
 		select {
-		case <-release:
+		case release := <-releaseSlow:
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
 		case <-ctx.Done():
 		}
 		return w.Write([]byte{})

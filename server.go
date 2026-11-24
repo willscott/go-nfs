@@ -7,8 +7,12 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// ErrServerClosed is returned by Serve after a call to Shutdown or Close.
+var ErrServerClosed = errors.New("nfs: Server closed")
 
 // Server is a handle to the listening NFS server.
 type Server struct {
@@ -36,6 +40,13 @@ type Server struct {
 	// created on first use.
 	nfs4StateMgr  *nfs4StateManager
 	nfs4StateOnce sync.Once
+
+	// inShutdown is set by Shutdown and Close; the server then accepts no
+	// new connections and its connections take no new requests.
+	inShutdown atomic.Bool
+	mu         sync.Mutex
+	listeners  map[*net.Listener]struct{}
+	conns      map[*conn]struct{}
 }
 
 // RegisterMessageHandler registers a handler for a procedure of an RPC
@@ -84,9 +95,22 @@ const anyVersion = ^uint32(0)
 
 var registeredHandlers map[registeredHandlerID]HandleFunc
 
-// Serve listens on the provided listener port for incoming client requests.
+// Serve accepts connections on l and serves each one on its own goroutine.
+//
+// Serve returns only once every connection it accepted has finished. After
+// Shutdown or Close it returns ErrServerClosed. If l fails some other way,
+// Serve closes the connections it accepted and returns the error.
+//
+// The Server's Context is the parent of the context each request is
+// handled with.
 func (s *Server) Serve(l net.Listener) error {
+	l = &onceCloseListener{Listener: l}
 	defer func() { _ = l.Close() }()
+	if !s.trackListener(&l, true) {
+		return ErrServerClosed
+	}
+	defer s.trackListener(&l, false)
+
 	baseCtx := context.Background()
 	if s.Context != nil {
 		baseCtx = s.Context
@@ -97,37 +121,172 @@ func (s *Server) Serve(l net.Listener) error {
 		}
 	}
 
-	var tempDelay time.Duration
+	serveCtx, closeConns := context.WithCancel(baseCtx)
+	defer closeConns()
+	var conns sync.WaitGroup
 
+	var tempDelay time.Duration
 	for {
-		conn, err := l.Accept()
+		nc, err := l.Accept()
 		if err != nil {
+			if s.inShutdown.Load() {
+				// Shutdown or Close is ending the connections; wait for them.
+				conns.Wait()
+				return ErrServerClosed
+			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
 				} else {
 					tempDelay *= 2
 				}
-				if max := 1 * time.Second; tempDelay > max {
-					tempDelay = max
-				}
+				tempDelay = min(tempDelay, 1*time.Second)
 				time.Sleep(tempDelay)
 				continue
 			}
+			closeConns()
+			conns.Wait()
 			return err
 		}
 		tempDelay = 0
-		c := s.newConn(conn)
-		go c.serve(baseCtx)
+
+		connCtx, cancel := context.WithCancel(serveCtx)
+		c := s.newConn(nc, cancel)
+		if !s.trackConn(c, true) {
+			// Shutting down: the listener is closed, so Accept fails next.
+			cancel()
+			_ = nc.Close()
+			continue
+		}
+		conns.Go(func() {
+			defer s.trackConn(c, false)
+			c.serve(connCtx)
+		})
 	}
 }
 
-func (s *Server) newConn(nc net.Conn) *conn {
-	c := &conn{
+// Shutdown stops the server gracefully. It closes the listeners, lets each
+// connection finish and answer the requests it is already handling, and
+// then closes it. Shutdown returns when every connection has closed.
+//
+// If ctx ends first, Shutdown closes the remaining connections as Close
+// does and returns ctx's error. NFS clients resend unanswered requests, so
+// a client of a server that is restarted loses nothing but time.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.inShutdown.Store(true)
+	s.mu.Lock()
+	err := s.closeListenersLocked()
+	for c := range s.conns {
+		c.interruptIdleRead()
+	}
+	s.mu.Unlock()
+
+	const maxPoll = 500 * time.Millisecond
+	poll := time.Millisecond
+	timer := time.NewTimer(poll)
+	defer timer.Stop()
+	for {
+		if s.numConns() == 0 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			_ = s.Close()
+			return ctx.Err()
+		case <-timer.C:
+			poll = min(poll*2, maxPoll)
+			timer.Reset(poll)
+		}
+	}
+}
+
+// Close stops the server at once. It closes the listeners and every
+// connection, and cancels the context of each request still being handled.
+// Close does not wait for handlers to return; Serve does. For a graceful
+// stop, use Shutdown.
+func (s *Server) Close() error {
+	s.inShutdown.Store(true)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.closeListenersLocked()
+	for c := range s.conns {
+		c.cancel()
+	}
+	return err
+}
+
+// trackListener adds or removes a listener Shutdown and Close must close.
+// It reports false, adding nothing, once the server is shutting down.
+func (s *Server) trackListener(l *net.Listener, add bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !add {
+		delete(s.listeners, l)
+		return true
+	}
+	if s.inShutdown.Load() {
+		return false
+	}
+	if s.listeners == nil {
+		s.listeners = make(map[*net.Listener]struct{})
+	}
+	s.listeners[l] = struct{}{}
+	return true
+}
+
+// trackConn adds or removes a connection Shutdown and Close must end. It
+// reports false, adding nothing, once the server is shutting down.
+func (s *Server) trackConn(c *conn, add bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !add {
+		delete(s.conns, c)
+		return true
+	}
+	if s.inShutdown.Load() {
+		return false
+	}
+	if s.conns == nil {
+		s.conns = make(map[*conn]struct{})
+	}
+	s.conns[c] = struct{}{}
+	return true
+}
+
+func (s *Server) numConns() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
+func (s *Server) closeListenersLocked() error {
+	var err error
+	for l := range s.listeners {
+		if cerr := (*l).Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}
+	return err
+}
+
+func (s *Server) newConn(nc net.Conn, cancel context.CancelFunc) *conn {
+	return &conn{
 		Server: s,
 		Conn:   nc,
+		cancel: cancel,
 	}
-	return c
+}
+
+// onceCloseListener lets both Serve and Close close a listener.
+type onceCloseListener struct {
+	net.Listener
+	once sync.Once
+	err  error
+}
+
+func (l *onceCloseListener) Close() error {
+	l.once.Do(func() { l.err = l.Listener.Close() })
+	return l.err
 }
 
 // handlerFor finds the handler for a call. When there is none, it returns
